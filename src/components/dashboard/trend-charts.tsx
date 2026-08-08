@@ -92,12 +92,16 @@ function MiniTrend({
               />
               <Tooltip
                 contentStyle={{
-                  background: "#292524",
-                  border: "1px solid #44403c",
-                  borderRadius: "6px",
+                  background: "#1c1917",
+                  border: "1px solid #fbbf24",
+                  borderRadius: "8px",
                   fontSize: "12px",
                   color: "#e7e5e4",
+                  padding: "8px 12px",
                 }}
+                itemStyle={{ color: "#e7e5e4" }}
+                labelStyle={{ color: "#fbbf24", fontWeight: 600, marginBottom: 4 }}
+                cursor={{ stroke: "#fbbf24", strokeWidth: 1, strokeDasharray: "4 4" }}
                 formatter={(value) => [
                   `${Number(value).toFixed(1)}${unit ?? ""}`,
                   title,

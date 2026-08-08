@@ -48,10 +48,10 @@ export function getDaysToRace(): number {
 }
 
 export const WEEKLY_TARGETS_KM: number[] = [
-  25, 30, 35, 25,
-  40, 45, 50, 35,
-  55, 60, 65, 45,
-  70, 75,
-  50, 35,
-  15,
+  30, 35, 40, 30,
+  50, 55, 60, 45,
+  70, 75, 80, 55,
+  90, 95,
+  65, 45,
+  20,
 ];

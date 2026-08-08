@@ -80,13 +80,20 @@ export function WeeklyChart({ activities }: WeeklyChartProps) {
               />
               <Tooltip
                 contentStyle={{
-                  background: "#292524",
-                  border: "1px solid #44403c",
-                  borderRadius: "6px",
+                  background: "#1c1917",
+                  border: "1px solid #fbbf24",
+                  borderRadius: "8px",
                   fontSize: "13px",
                   color: "#e7e5e4",
+                  padding: "8px 12px",
                 }}
-                cursor={{ fill: "rgba(251,191,36,0.05)" }}
+                itemStyle={{ color: "#e7e5e4" }}
+                labelStyle={{ color: "#fbbf24", fontWeight: 600, marginBottom: 4 }}
+                cursor={{ fill: "rgba(251,191,36,0.08)" }}
+                formatter={(value, name) => {
+                  const v = Number(value);
+                  return [`${v} km`, String(name)];
+                }}
               />
               <ReferenceLine
                 x={`W${currentWeek}`}

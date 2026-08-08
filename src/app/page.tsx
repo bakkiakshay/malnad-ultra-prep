@@ -12,6 +12,7 @@ import { WeeklyChart } from "@/components/dashboard/weekly-chart";
 import { TrendCharts } from "@/components/dashboard/trend-charts";
 import { RecentActivities } from "@/components/dashboard/recent-activities";
 import { RacePredictor } from "@/components/dashboard/race-predictor";
+import { Insights } from "@/components/dashboard/insights";
 import { formatDuration } from "@/lib/format";
 import type { Activity } from "@/lib/database.types";
 
@@ -119,15 +120,22 @@ export default async function DashboardPage() {
   const weekKm = runsThisWeek.reduce((s, a) => s + a.distance_km, 0);
   const weekTarget = WEEKLY_TARGETS_KM[week - 1] ?? 0;
 
-  const avgPace = activities.length > 0
-    ? activities.filter(a => a.avg_pace_min_km != null).reduce((s, a) => s + a.avg_pace_min_km!, 0) /
-      activities.filter(a => a.avg_pace_min_km != null).length
+  const paceActivities = activities.filter(a => a.avg_pace_min_km != null);
+  const avgPace = paceActivities.length > 0
+    ? paceActivities.reduce((s, a) => s + a.avg_pace_min_km!, 0) / paceActivities.length
     : null;
+
+  const cadenceActivities = activities.filter(a => a.avg_cadence != null);
+  const avgCadence = cadenceActivities.length > 0
+    ? Math.round(cadenceActivities.reduce((s, a) => s + a.avg_cadence! * 2, 0) / cadenceActivities.length)
+    : null;
+
+  const tsb = latestCtl != null && latestAtl != null ? Math.round(latestCtl - latestAtl) : null;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight" style={{ color: "#fbbf24" }}>
+        <h1 className="text-2xl font-bold tracking-tight font-heading" style={{ color: "#fbbf24" }}>
           Akshay&apos;s Malnad Ultra Prep
         </h1>
         <p className="text-sm text-muted-foreground">
@@ -142,38 +150,44 @@ export default async function DashboardPage() {
       )}
 
       {/* Top stats row */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard
           label="Days to Race"
           value={daysToRace}
           sub={`Week ${week} · ${phase?.name ?? ""}`}
           highlight
+          hint="Countdown to race day. Weeks run Mon–Sun aligned to your plan start."
         />
         <StatCard
           label="Total Distance"
           value={totalKm.toFixed(1)}
           unit="km"
           sub={`${activities.length} runs`}
+          hint="Sum of all run distances since training started. Track this against your plan total."
         />
         <StatCard
           label="Total Time"
           value={formatDuration(totalTime)}
+          hint="Time on feet matters more than pace for ultra training. Build this gradually."
         />
         <StatCard
           label="Elevation"
           value={Math.round(totalElevation).toLocaleString()}
           unit="m"
+          hint={`Cumulative climbing. Race has ${RACE.elevation_m}m D+ — aim to exceed this in training.`}
         />
         <StatCard
           label="Longest Run"
           value={longestRun.toFixed(1)}
           unit="km"
+          hint="Your furthest single run. For 100K, aim to hit 40-50km in peak weeks."
         />
         <StatCard
           label="Fitness / Fatigue"
           value={latestCtl != null ? latestCtl.toFixed(0) : "—"}
           unit={latestAtl != null ? `/ ${latestAtl.toFixed(0)}` : ""}
-          sub={latestRhr != null ? `RHR ${latestRhr} bpm` : undefined}
+          sub={tsb != null ? `Form: ${tsb > 0 ? "+" : ""}${tsb} · RHR ${latestRhr ?? "—"}` : latestRhr != null ? `RHR ${latestRhr} bpm` : undefined}
+          hint="CTL (fitness) = 42-day training load average. ATL (fatigue) = 7-day average. Form = CTL − ATL. Positive form = rested, negative = fatigued. Race at +5 to +15."
         />
       </div>
 
@@ -183,30 +197,26 @@ export default async function DashboardPage() {
           label="This Week"
           value={weekKm.toFixed(1)}
           unit={`/ ${weekTarget} km`}
-          sub={`${runsThisWeek.length} runs`}
+          sub={`${runsThisWeek.length} runs · Mon–Sun`}
+          hint="Distance logged this training week (Mon–Sun). Your Sunday long run counts in the current week."
         />
         <StatCard
           label="Plan Compliance"
           value={`${compliance}%`}
-          sub={`${totalKm.toFixed(0)} / ${totalPlanned} km planned`}
+          sub={`${totalKm.toFixed(0)} / ${totalPlanned} km target`}
+          hint="Actual distance vs planned distance through this week. 85-105% is the sweet spot — too far over risks injury."
         />
         <StatCard
           label="Avg Pace"
           value={avgPace != null ? `${Math.floor(avgPace)}:${Math.round((avgPace % 1) * 60).toString().padStart(2, "0")}` : "—"}
           unit="/km"
+          hint="Average pace across all runs. For ultra training, most runs should be slow (Z2). Watch this stay easy."
         />
         <StatCard
           label="Avg Cadence"
-          value={
-            activities.filter(a => a.avg_cadence != null).length > 0
-              ? Math.round(
-                  activities.filter(a => a.avg_cadence != null)
-                    .reduce((s, a) => s + a.avg_cadence! * 2, 0) /
-                  activities.filter(a => a.avg_cadence != null).length
-                )
-              : "—"
-          }
+          value={avgCadence ?? "—"}
           unit="spm"
+          hint="Steps per minute (both feet). 170-180 spm is efficient for most runners. Higher cadence = less impact per step."
         />
       </div>
 
@@ -224,7 +234,12 @@ export default async function DashboardPage() {
       </div>
 
       {/* Recent activities */}
-      <RecentActivities activities={activities} />
+      <div className="mb-6">
+        <RecentActivities activities={activities} />
+      </div>
+
+      {/* Insights */}
+      <Insights activities={activities} />
     </div>
   );
 }
