@@ -3,10 +3,11 @@ import {
   PLAN_START,
   PLAN_WEEKS,
   TRAINING_PHASES,
+  WEEKLY_TARGETS_KM,
   getCurrentWeek,
   RACE,
 } from "@/lib/config";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -56,21 +57,48 @@ export default async function PlanPage() {
     }
   }
 
+  const totalPlanned = WEEKLY_TARGETS_KM.reduce((s, v) => s + v, 0);
+  const totalActual = weeklyData.reduce((s, w) => s + w.distance, 0);
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
       <div className="mb-6">
-        <h1 className="text-xl font-bold tracking-tight">Training Plan</h1>
+        <h1 className="text-xl font-bold tracking-tight" style={{ color: "#fbbf24" }}>
+          Training Plan
+        </h1>
         <p className="text-sm text-muted-foreground">
-          17 weeks &middot; {PLAN_START} to {RACE.date}
+          17 weeks &middot; {PLAN_START} to {RACE.date} &middot; {totalPlanned} km total planned
         </p>
+      </div>
+
+      {/* Summary bar */}
+      <div className="mb-6 grid grid-cols-3 gap-3">
+        <Card>
+          <CardContent className="p-3 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Completed</p>
+            <p className="text-xl font-bold tabular-nums">{totalActual.toFixed(0)} <span className="text-xs font-normal text-muted-foreground">km</span></p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Planned</p>
+            <p className="text-xl font-bold tabular-nums">{totalPlanned} <span className="text-xs font-normal text-muted-foreground">km</span></p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Remaining</p>
+            <p className="text-xl font-bold tabular-nums">{Math.max(0, totalPlanned - totalActual).toFixed(0)} <span className="text-xs font-normal text-muted-foreground">km</span></p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="space-y-2">
         {TRAINING_PHASES.map((phase) => (
           <div key={phase.name}>
-            <h2 className="mb-2 mt-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            <h2 className="mb-2 mt-4 text-sm font-semibold uppercase tracking-wider" style={{ color: "#fbbf24" }}>
               {phase.name}{" "}
-              <span className="font-normal">
+              <span className="font-normal text-muted-foreground">
                 (W{phase.weeks[0]}–{phase.weeks[1]}) &middot; {phase.focus}
               </span>
             </h2>
@@ -80,52 +108,71 @@ export default async function PlanPage() {
                 (_, i) => phase.weeks[0] + i
               ).map((w) => {
                 const data = weeklyData.find((d) => d.week === w);
+                const target = WEEKLY_TARGETS_KM[w - 1] ?? 0;
                 const isCurrent = w === currentWeek;
                 const isPast = w < currentWeek;
+                const pct = target > 0 && data ? Math.min((data.distance / target) * 100, 100) : 0;
                 const { start, end } = getWeekDates(w);
 
                 return (
                   <Card
                     key={w}
                     className={cn(
-                      isCurrent && "ring-2 ring-primary",
-                      !isPast && !isCurrent && "opacity-60"
+                      isCurrent && "ring-2",
+                      !isPast && !isCurrent && "opacity-50"
                     )}
+                    style={isCurrent ? { borderColor: "#fbbf24", boxShadow: "0 0 0 2px #fbbf24" } : undefined}
                   >
-                    <CardContent className="flex items-center justify-between p-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold">
-                            Week {w}
-                          </span>
-                          {isCurrent && (
-                            <Badge variant="default" className="text-[10px] px-1.5 py-0">
-                              Current
-                            </Badge>
-                          )}
+                    <CardContent className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold">
+                              Week {w}
+                            </span>
+                            {isCurrent && (
+                              <Badge
+                                variant="default"
+                                className="text-[10px] px-1.5 py-0"
+                                style={{ background: "#fbbf24", color: "#1c1917" }}
+                              >
+                                Current
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(start + "T00:00:00").toLocaleDateString("en-IN", {
+                              month: "short",
+                              day: "numeric",
+                            })}{" "}
+                            –{" "}
+                            {new Date(end + "T00:00:00").toLocaleDateString("en-IN", {
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </p>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(start + "T00:00:00").toLocaleDateString("en-IN", {
-                            month: "short",
-                            day: "numeric",
-                          })}{" "}
-                          –{" "}
-                          {new Date(end + "T00:00:00").toLocaleDateString("en-IN", {
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </p>
+                        <div className="text-right">
+                          <p className="text-lg font-bold tabular-nums">
+                            {data?.distance ?? 0}
+                            <span className="ml-0.5 text-xs font-normal text-muted-foreground">
+                              / {target} km
+                            </span>
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {data?.runs ?? 0} runs
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-lg font-bold tabular-nums">
-                          {data?.distance ?? 0}
-                          <span className="ml-0.5 text-xs font-normal text-muted-foreground">
-                            km
-                          </span>
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {data?.runs ?? 0} runs
-                        </p>
+                      {/* Progress bar */}
+                      <div className="h-1.5 rounded-full" style={{ background: "#44403c" }}>
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${pct}%`,
+                            background: pct >= 90 ? "#22c55e" : pct >= 50 ? "#fbbf24" : isPast ? "#ef4444" : "#78716c",
+                          }}
+                        />
                       </div>
                     </CardContent>
                   </Card>

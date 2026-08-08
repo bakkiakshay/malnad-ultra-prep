@@ -8,6 +8,8 @@ import {
   ResponsiveContainer,
   Tooltip,
   CartesianGrid,
+  Area,
+  AreaChart,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Activity } from "@/lib/database.types";
@@ -23,12 +25,14 @@ function MiniTrend({
   dataKey,
   color,
   unit,
+  fill,
 }: {
   title: string;
   data: { date: string; value: number }[];
   dataKey: string;
   color: string;
   unit?: string;
+  fill?: string;
 }) {
   if (data.length === 0) {
     return (
@@ -43,19 +47,35 @@ function MiniTrend({
     );
   }
 
+  const latest = data[data.length - 1]?.value;
+
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+      <CardHeader className="pb-1">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
+          <span className="text-lg font-bold tabular-nums" style={{ color }}>
+            {typeof latest === "number" ? latest.toFixed(1) : "—"}
+            <span className="ml-0.5 text-xs font-normal text-muted-foreground">{unit}</span>
+          </span>
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="h-32">
+        <div className="h-28">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ left: -20, right: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <AreaChart data={data} margin={{ left: -20, right: 4, top: 4, bottom: 0 }}>
+              <defs>
+                <linearGradient id={`grad-${dataKey}-${color.replace("#","")}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={color} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#44403c" vertical={false} />
               <XAxis
                 dataKey="date"
-                tick={{ fill: "var(--color-muted-foreground)", fontSize: 10 }}
+                tick={{ fill: "#78716c", fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
                 tickFormatter={(v: string) => {
                   const d = new Date(v + "T00:00:00");
                   return d.toLocaleDateString("en-IN", {
@@ -65,15 +85,18 @@ function MiniTrend({
                 }}
               />
               <YAxis
-                tick={{ fill: "var(--color-muted-foreground)", fontSize: 10 }}
+                tick={{ fill: "#78716c", fontSize: 10 }}
                 domain={["dataMin - 1", "dataMax + 1"]}
+                tickLine={false}
+                axisLine={false}
               />
               <Tooltip
                 contentStyle={{
-                  background: "var(--color-card)",
-                  border: "1px solid var(--color-border)",
+                  background: "#292524",
+                  border: "1px solid #44403c",
                   borderRadius: "6px",
                   fontSize: "12px",
+                  color: "#e7e5e4",
                 }}
                 formatter={(value) => [
                   `${Number(value).toFixed(1)}${unit ?? ""}`,
@@ -88,15 +111,16 @@ function MiniTrend({
                   });
                 }}
               />
-              <Line
+              <Area
                 type="monotone"
                 dataKey={dataKey}
                 stroke={color}
                 strokeWidth={2}
-                dot={{ r: 3, fill: color }}
-                activeDot={{ r: 5 }}
+                fill={`url(#grad-${dataKey}-${color.replace("#","")})`}
+                dot={{ r: 3, fill: color, stroke: "#292524", strokeWidth: 2 }}
+                activeDot={{ r: 5, fill: color }}
               />
-            </LineChart>
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </CardContent>
@@ -133,24 +157,24 @@ export function TrendCharts({ activities }: TrendChartsProps) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <MiniTrend
-        title="Z2 Pace Trend"
+        title="Z2 pace"
         data={z2Runs}
         dataKey="value"
-        color="#2D5F3E"
+        color="#22c55e"
         unit=" min/km"
       />
       <MiniTrend
-        title="Avg HR per Run"
+        title="Avg HR"
         data={hrData}
         dataKey="value"
-        color="#C4564A"
+        color="#ef4444"
         unit=" bpm"
       />
       <MiniTrend
-        title="Cadence Trend"
+        title="Cadence"
         data={cadenceData}
         dataKey="value"
-        color="#5A7D9A"
+        color="#3b82f6"
         unit=" spm"
       />
     </div>

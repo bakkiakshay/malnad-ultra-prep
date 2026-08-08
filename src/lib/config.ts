@@ -46,3 +46,12 @@ export function getDaysToRace(): number {
   const now = new Date();
   return Math.max(0, Math.ceil((race.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
 }
+
+export const WEEKLY_TARGETS_KM: number[] = [
+  25, 30, 35, 25,
+  40, 45, 50, 35,
+  55, 60, 65, 45,
+  70, 75,
+  50, 35,
+  15,
+];

@@ -5,11 +5,13 @@ import {
   getCurrentPhase,
   getDaysToRace,
   RACE,
+  WEEKLY_TARGETS_KM,
 } from "@/lib/config";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { WeeklyChart } from "@/components/dashboard/weekly-chart";
 import { TrendCharts } from "@/components/dashboard/trend-charts";
 import { RecentActivities } from "@/components/dashboard/recent-activities";
+import { RacePredictor } from "@/components/dashboard/race-predictor";
 import { formatDuration } from "@/lib/format";
 import type { Activity } from "@/lib/database.types";
 
@@ -102,15 +104,34 @@ export default async function DashboardPage() {
     (max, a) => Math.max(max, a.distance_km),
     0
   );
+  const totalPlanned = WEEKLY_TARGETS_KM.slice(0, week).reduce((s, v) => s + v, 0);
+  const compliance = totalPlanned > 0 ? Math.round((totalKm / totalPlanned) * 100) : 0;
+
+  const runsThisWeek = activities.filter((a) => {
+    const planStart = new Date(PLAN_START);
+    const weekStart = new Date(planStart);
+    weekStart.setDate(planStart.getDate() + (week - 1) * 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    return a.activity_date >= weekStart.toISOString().slice(0, 10) &&
+           a.activity_date <= weekEnd.toISOString().slice(0, 10);
+  });
+  const weekKm = runsThisWeek.reduce((s, a) => s + a.distance_km, 0);
+  const weekTarget = WEEKLY_TARGETS_KM[week - 1] ?? 0;
+
+  const avgPace = activities.length > 0
+    ? activities.filter(a => a.avg_pace_min_km != null).reduce((s, a) => s + a.avg_pace_min_km!, 0) /
+      activities.filter(a => a.avg_pace_min_km != null).length
+    : null;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">
+        <h1 className="text-2xl font-bold tracking-tight" style={{ color: "#fbbf24" }}>
           Akshay&apos;s Malnad Ultra Prep
         </h1>
         <p className="text-sm text-muted-foreground">
-          {RACE.name} &middot; {RACE.date} &middot; {RACE.terrain}
+          {RACE.name} &middot; {RACE.date} &middot; {RACE.terrain} &middot; {RACE.elevation_m}m D+
         </p>
       </div>
 
@@ -120,12 +141,13 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Summary tiles */}
+      {/* Top stats row */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard
           label="Days to Race"
           value={daysToRace}
           sub={`Week ${week} · ${phase?.name ?? ""}`}
+          highlight
         />
         <StatCard
           label="Total Distance"
@@ -155,9 +177,45 @@ export default async function DashboardPage() {
         />
       </div>
 
-      {/* Weekly volume chart */}
-      <div className="mb-6">
-        <WeeklyChart activities={activities} />
+      {/* This week + compliance row */}
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard
+          label="This Week"
+          value={weekKm.toFixed(1)}
+          unit={`/ ${weekTarget} km`}
+          sub={`${runsThisWeek.length} runs`}
+        />
+        <StatCard
+          label="Plan Compliance"
+          value={`${compliance}%`}
+          sub={`${totalKm.toFixed(0)} / ${totalPlanned} km planned`}
+        />
+        <StatCard
+          label="Avg Pace"
+          value={avgPace != null ? `${Math.floor(avgPace)}:${Math.round((avgPace % 1) * 60).toString().padStart(2, "0")}` : "—"}
+          unit="/km"
+        />
+        <StatCard
+          label="Avg Cadence"
+          value={
+            activities.filter(a => a.avg_cadence != null).length > 0
+              ? Math.round(
+                  activities.filter(a => a.avg_cadence != null)
+                    .reduce((s, a) => s + a.avg_cadence! * 2, 0) /
+                  activities.filter(a => a.avg_cadence != null).length
+                )
+              : "—"
+          }
+          unit="spm"
+        />
+      </div>
+
+      {/* Weekly volume + race predictor */}
+      <div className="mb-6 grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <WeeklyChart activities={activities} />
+        </div>
+        <RacePredictor activities={activities} />
       </div>
 
       {/* Trend charts */}

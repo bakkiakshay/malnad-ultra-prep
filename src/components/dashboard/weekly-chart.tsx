@@ -8,10 +8,12 @@ import {
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
+  Legend,
+  ReferenceLine,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Activity } from "@/lib/database.types";
-import { PLAN_START, PLAN_WEEKS } from "@/lib/config";
+import { PLAN_START, PLAN_WEEKS, WEEKLY_TARGETS_KM, getCurrentWeek } from "@/lib/config";
 
 interface WeeklyChartProps {
   activities: Activity[];
@@ -26,7 +28,8 @@ function getWeekNumber(dateStr: string): number {
 }
 
 export function WeeklyChart({ activities }: WeeklyChartProps) {
-  const weeklyData: { week: string; distance: number }[] = [];
+  const currentWeek = getCurrentWeek();
+  const weeklyData: { week: string; actual: number; planned: number }[] = [];
 
   for (let w = 1; w <= PLAN_WEEKS; w++) {
     const weekActivities = activities.filter(
@@ -35,43 +38,81 @@ export function WeeklyChart({ activities }: WeeklyChartProps) {
     const totalKm = weekActivities.reduce((sum, a) => sum + a.distance_km, 0);
     weeklyData.push({
       week: `W${w}`,
-      distance: +totalKm.toFixed(1),
+      actual: +totalKm.toFixed(1),
+      planned: WEEKLY_TARGETS_KM[w - 1] ?? 0,
     });
   }
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">
-          Weekly Volume (km)
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium">
+            Weekly volume (km)
+          </CardTitle>
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#fbbf24" }} />
+              Actual
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm border border-dashed" style={{ borderColor: "#78716c" }} />
+              Planned
+            </span>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="h-48">
+        <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={weeklyData} margin={{ left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <BarChart data={weeklyData} margin={{ left: -20, right: 4 }} barGap={1}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#44403c" vertical={false} />
               <XAxis
                 dataKey="week"
-                className="text-xs"
-                tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
+                tick={{ fill: "#a8a29e", fontSize: 11 }}
+                tickLine={false}
+                axisLine={{ stroke: "#44403c" }}
               />
               <YAxis
-                className="text-xs"
-                tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
+                tick={{ fill: "#a8a29e", fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
               />
               <Tooltip
                 contentStyle={{
-                  background: "var(--color-card)",
-                  border: "1px solid var(--color-border)",
+                  background: "#292524",
+                  border: "1px solid #44403c",
                   borderRadius: "6px",
                   fontSize: "13px",
+                  color: "#e7e5e4",
+                }}
+                cursor={{ fill: "rgba(251,191,36,0.05)" }}
+              />
+              <ReferenceLine
+                x={`W${currentWeek}`}
+                stroke="#fbbf24"
+                strokeDasharray="3 3"
+                strokeWidth={1}
+                label={{
+                  value: "Now",
+                  position: "top",
+                  fill: "#fbbf24",
+                  fontSize: 10,
                 }}
               />
               <Bar
-                dataKey="distance"
-                fill="var(--color-primary)"
+                dataKey="planned"
+                fill="rgba(120,113,108,0.25)"
+                stroke="#78716c"
+                strokeDasharray="4 2"
                 radius={[3, 3, 0, 0]}
+                name="Planned"
+              />
+              <Bar
+                dataKey="actual"
+                fill="#fbbf24"
+                radius={[3, 3, 0, 0]}
+                name="Actual"
               />
             </BarChart>
           </ResponsiveContainer>

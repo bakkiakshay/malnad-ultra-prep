@@ -5,16 +5,17 @@ interface StatCardProps {
   value: string | number;
   unit?: string;
   sub?: string;
+  highlight?: boolean;
 }
 
-export function StatCard({ label, value, unit, sub }: StatCardProps) {
+export function StatCard({ label, value, unit, sub, highlight }: StatCardProps) {
   return (
-    <Card>
+    <Card className={highlight ? "border-[var(--gold)]/30" : ""}>
       <CardContent className="p-4">
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
           {label}
         </p>
-        <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">
+        <p className="mt-1 text-2xl font-bold tabular-nums" style={highlight ? { color: "#fbbf24" } : undefined}>
           {value}
           {unit && (
             <span className="ml-1 text-sm font-normal text-muted-foreground">
