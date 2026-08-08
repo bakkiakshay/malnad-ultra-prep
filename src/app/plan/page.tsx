@@ -7,9 +7,7 @@ import {
   getCurrentWeek,
   RACE,
 } from "@/lib/config";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { PlanWeeks } from "@/components/plan/plan-weeks";
 
 export const revalidate = 3600;
 
@@ -25,35 +23,68 @@ function getWeekDates(weekNum: number): { start: string; end: string } {
   };
 }
 
+interface WeekRun {
+  date: string;
+  name: string;
+  distance_km: number;
+  duration_sec: number;
+  avg_pace: number | null;
+  avg_hr: number | null;
+}
+
+interface WeekData {
+  week: number;
+  distance: number;
+  runs: WeekRun[];
+  start: string;
+  end: string;
+  target: number;
+}
+
 export default async function PlanPage() {
   const today = new Date().toISOString().slice(0, 10);
   const currentWeek = getCurrentWeek();
 
-  let weeklyData: { week: number; distance: number; runs: number }[] = [];
+  let weeklyData: WeekData[] = [];
 
   try {
     const raw = await fetchActivities(PLAN_START, today);
     const activities = raw.map((a) => ({
       date: a.start_date_local?.slice(0, 10) ?? "",
+      name: a.name ?? "Run",
       distance_km: a.distance ? a.distance / 1000 : 0,
+      duration_sec: a.moving_time ?? a.elapsed_time ?? 0,
+      avg_pace: a.average_speed && a.average_speed > 0
+        ? +(1000 / a.average_speed / 60).toFixed(2)
+        : null,
+      avg_hr: a.average_heartrate ?? null,
     }));
 
     for (let w = 1; w <= PLAN_WEEKS; w++) {
       const { start, end } = getWeekDates(w);
-      const weekRuns = activities.filter(
-        (a) => a.date >= start && a.date <= end
-      );
+      const weekRuns = activities
+        .filter((a) => a.date >= start && a.date <= end)
+        .sort((a, b) => a.date.localeCompare(b.date));
       weeklyData.push({
         week: w,
-        distance: +weekRuns
-          .reduce((sum, a) => sum + a.distance_km, 0)
-          .toFixed(1),
-        runs: weekRuns.length,
+        distance: +weekRuns.reduce((sum, a) => sum + a.distance_km, 0).toFixed(1),
+        runs: weekRuns,
+        start,
+        end,
+        target: WEEKLY_TARGETS_KM[w - 1] ?? 0,
       });
     }
   } catch {
     for (let w = 1; w <= PLAN_WEEKS; w++) {
-      weeklyData.push({ week: w, distance: 0, runs: 0 });
+      const { start, end } = getWeekDates(w);
+      weeklyData.push({
+        week: w,
+        distance: 0,
+        runs: [],
+        start,
+        end,
+        target: WEEKLY_TARGETS_KM[w - 1] ?? 0,
+      });
     }
   }
 
@@ -63,7 +94,7 @@ export default async function PlanPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
       <div className="mb-6">
-        <h1 className="text-xl font-bold tracking-tight" style={{ color: "#fbbf24" }}>
+        <h1 className="text-xl font-bold tracking-tight font-heading" style={{ color: "#fbbf24" }}>
           Training Plan
         </h1>
         <p className="text-sm text-muted-foreground">
@@ -73,115 +104,21 @@ export default async function PlanPage() {
 
       {/* Summary bar */}
       <div className="mb-6 grid grid-cols-3 gap-3">
-        <Card>
-          <CardContent className="p-3 text-center">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Completed</p>
-            <p className="text-xl font-bold tabular-nums">{totalActual.toFixed(0)} <span className="text-xs font-normal text-muted-foreground">km</span></p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 text-center">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Planned</p>
-            <p className="text-xl font-bold tabular-nums">{totalPlanned} <span className="text-xs font-normal text-muted-foreground">km</span></p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3 text-center">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Remaining</p>
-            <p className="text-xl font-bold tabular-nums">{Math.max(0, totalPlanned - totalActual).toFixed(0)} <span className="text-xs font-normal text-muted-foreground">km</span></p>
-          </CardContent>
-        </Card>
+        <div className="rounded-lg p-3 text-center" style={{ background: "#292524", border: "1px solid #44403c" }}>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">Completed</p>
+          <p className="text-xl font-bold tabular-nums">{totalActual.toFixed(0)} <span className="text-xs font-normal text-muted-foreground">km</span></p>
+        </div>
+        <div className="rounded-lg p-3 text-center" style={{ background: "#292524", border: "1px solid #44403c" }}>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">Planned</p>
+          <p className="text-xl font-bold tabular-nums">{totalPlanned} <span className="text-xs font-normal text-muted-foreground">km</span></p>
+        </div>
+        <div className="rounded-lg p-3 text-center" style={{ background: "#292524", border: "1px solid #44403c" }}>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">Remaining</p>
+          <p className="text-xl font-bold tabular-nums">{Math.max(0, totalPlanned - totalActual).toFixed(0)} <span className="text-xs font-normal text-muted-foreground">km</span></p>
+        </div>
       </div>
 
-      <div className="space-y-2">
-        {TRAINING_PHASES.map((phase) => (
-          <div key={phase.name}>
-            <h2 className="mb-2 mt-4 text-sm font-semibold uppercase tracking-wider" style={{ color: "#fbbf24" }}>
-              {phase.name}{" "}
-              <span className="font-normal text-muted-foreground">
-                (W{phase.weeks[0]}–{phase.weeks[1]}) &middot; {phase.focus}
-              </span>
-            </h2>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {Array.from(
-                { length: phase.weeks[1] - phase.weeks[0] + 1 },
-                (_, i) => phase.weeks[0] + i
-              ).map((w) => {
-                const data = weeklyData.find((d) => d.week === w);
-                const target = WEEKLY_TARGETS_KM[w - 1] ?? 0;
-                const isCurrent = w === currentWeek;
-                const isPast = w < currentWeek;
-                const pct = target > 0 && data ? Math.min((data.distance / target) * 100, 100) : 0;
-                const { start, end } = getWeekDates(w);
-
-                return (
-                  <Card
-                    key={w}
-                    className={cn(
-                      isCurrent && "ring-2",
-                      !isPast && !isCurrent && "opacity-50"
-                    )}
-                    style={isCurrent ? { borderColor: "#fbbf24", boxShadow: "0 0 0 2px #fbbf24" } : undefined}
-                  >
-                    <CardContent className="p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold">
-                              Week {w}
-                            </span>
-                            {isCurrent && (
-                              <Badge
-                                variant="default"
-                                className="text-[10px] px-1.5 py-0"
-                                style={{ background: "#fbbf24", color: "#1c1917" }}
-                              >
-                                Current
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(start + "T00:00:00").toLocaleDateString("en-IN", {
-                              month: "short",
-                              day: "numeric",
-                            })}{" "}
-                            –{" "}
-                            {new Date(end + "T00:00:00").toLocaleDateString("en-IN", {
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-bold tabular-nums">
-                            {data?.distance ?? 0}
-                            <span className="ml-0.5 text-xs font-normal text-muted-foreground">
-                              / {target} km
-                            </span>
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {data?.runs ?? 0} runs
-                          </p>
-                        </div>
-                      </div>
-                      {/* Progress bar */}
-                      <div className="h-1.5 rounded-full" style={{ background: "#44403c" }}>
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${pct}%`,
-                            background: pct >= 90 ? "#22c55e" : pct >= 50 ? "#fbbf24" : isPast ? "#ef4444" : "#78716c",
-                          }}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
+      <PlanWeeks weeklyData={weeklyData} currentWeek={currentWeek} />
     </div>
   );
 }
