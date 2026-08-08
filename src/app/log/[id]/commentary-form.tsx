@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,33 @@ export function CommentaryForm({ activityId }: CommentaryFormProps) {
   const [nutrition, setNutrition] = useState("");
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState<string[]>([]);
-  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    async function loadCommentary() {
+      try {
+        const res = await fetch(
+          `/api/commentary?activity_id=${encodeURIComponent(activityId)}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data) {
+          setFeelRating(data.feel_rating ?? null);
+          setShoes(data.shoes ?? "");
+          setNutrition(data.nutrition ?? "");
+          setNotes(data.notes ?? "");
+          setTags(data.tags ?? []);
+        }
+      } catch {
+        // Supabase not configured yet — form starts empty
+      } finally {
+        setLoaded(true);
+      }
+    }
+    loadCommentary();
+  }, [activityId]);
 
   function toggleTag(tag: string) {
     setTags((prev) =>
@@ -47,18 +73,44 @@ export function CommentaryForm({ activityId }: CommentaryFormProps) {
     );
   }
 
-  function handleSave() {
-    // TODO: Save to Supabase when connected
-    console.log("Commentary:", {
-      activityId,
-      feelRating,
-      shoes,
-      nutrition,
-      notes,
-      tags,
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+  async function handleSave() {
+    setSaving(true);
+    setStatus("idle");
+    try {
+      const res = await fetch("/api/commentary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          activity_id: activityId,
+          feel_rating: feelRating,
+          shoes: shoes || null,
+          nutrition: nutrition || null,
+          notes: notes || null,
+          tags: tags.length > 0 ? tags : null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Save failed");
+      }
+      setStatus("saved");
+      setTimeout(() => setStatus("idle"), 3000);
+    } catch (e) {
+      console.error("Save error:", e);
+      setStatus("error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!loaded) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">
+          Loading commentary...
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -158,9 +210,16 @@ export function CommentaryForm({ activityId }: CommentaryFormProps) {
 
         {/* Save */}
         <div className="flex items-center gap-3">
-          <Button onClick={handleSave}>Save Commentary</Button>
-          {saved && (
-            <span className="text-sm text-muted-foreground">Saved</span>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Saving..." : "Save Commentary"}
+          </Button>
+          {status === "saved" && (
+            <span className="text-sm text-green-600">Saved</span>
+          )}
+          {status === "error" && (
+            <span className="text-sm text-destructive">
+              Failed to save — is Supabase configured?
+            </span>
           )}
         </div>
       </CardContent>

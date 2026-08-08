@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Database } from "./database.types";
 
 export function createSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -11,5 +10,5 @@ export function createSupabaseClient() {
     );
   }
 
-  return createClient<Database>(url, key);
+  return createClient(url, key);
 }
