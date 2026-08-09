@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { TRAINING_PHASES } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 interface WeekRun {
+  id: string;
   date: string;
   name: string;
   distance_km: number;
@@ -52,6 +54,91 @@ function formatDateShort(dateStr: string): string {
   return d.toLocaleDateString("en-IN", { month: "short", day: "numeric" });
 }
 
+/** Get the day of week index (0=Mon, 6=Sun) from a date string */
+function getDayOfWeek(dateStr: string): number {
+  const d = new Date(dateStr + "T00:00:00");
+  // JS getDay: 0=Sun, 1=Mon, ... 6=Sat -> convert to 0=Mon, 6=Sun
+  const jsDay = d.getDay();
+  return jsDay === 0 ? 6 : jsDay - 1;
+}
+
+const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+
+/** Day-by-day grid showing run distribution */
+function DayGrid({ runs }: { runs: WeekRun[] }) {
+  // Build a map of day index -> total distance
+  const dayDistances = new Map<number, number>();
+  for (const run of runs) {
+    const day = getDayOfWeek(run.date);
+    dayDistances.set(day, (dayDistances.get(day) ?? 0) + run.distance_km);
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 mb-2">
+      {DAY_LABELS.map((label, i) => {
+        const dist = dayDistances.get(i) ?? 0;
+        const hasRun = dist > 0;
+        // Size: small <5km, medium 5-15km, large 15km+
+        let size = 14;
+        if (hasRun) {
+          if (dist >= 15) size = 22;
+          else if (dist >= 5) size = 18;
+          else size = 14;
+        }
+        return (
+          <div key={i} className="flex flex-col items-center gap-0.5">
+            <span className="text-[8px] text-muted-foreground leading-none">
+              {label}
+            </span>
+            <div
+              className="rounded-sm flex-shrink-0 transition-all"
+              style={{
+                width: size,
+                height: size,
+                background: hasRun ? "#fbbf24" : "transparent",
+                border: hasRun ? "none" : "1px solid #44403c",
+                opacity: hasRun ? (dist >= 15 ? 1 : dist >= 5 ? 0.8 : 0.5) : 0.3,
+              }}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Phase summary showing actual vs planned km */
+function PhaseSummary({
+  phase,
+  weeklyData,
+  currentWeek,
+}: {
+  phase: { weeks: [number, number]; name: string };
+  weeklyData: WeekData[];
+  currentWeek: number;
+}) {
+  // Only show for phases that have started
+  if (currentWeek < phase.weeks[0]) return null;
+
+  const phaseWeeks = weeklyData.filter(
+    (w) => w.week >= phase.weeks[0] && w.week <= phase.weeks[1]
+  );
+  const totalTarget = phaseWeeks.reduce((s, w) => s + w.target, 0);
+  const totalActual = phaseWeeks.reduce((s, w) => s + w.distance, 0);
+  const pct = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
+
+  let color = "#ef4444"; // red
+  if (pct >= 90) color = "#22c55e"; // green
+  else if (pct >= 70) color = "#fbbf24"; // gold
+
+  return (
+    <p className="mb-2 text-xs tabular-nums" style={{ color: "#a8a29e" }}>
+      {totalActual.toFixed(0)} / {totalTarget} km{" "}
+      <span style={{ color, fontWeight: 600 }}>({Math.round(pct)}%)</span>
+    </p>
+  );
+}
+
 export function PlanWeeks({ weeklyData, currentWeek }: PlanWeeksProps) {
   const [expanded, setExpanded] = useState<number | null>(currentWeek);
 
@@ -64,7 +151,7 @@ export function PlanWeeks({ weeklyData, currentWeek }: PlanWeeksProps) {
       {TRAINING_PHASES.map((phase) => (
         <div key={phase.name}>
           <h2
-            className="mb-2 mt-4 text-sm font-semibold uppercase tracking-wider font-heading"
+            className="mb-1 mt-4 text-sm font-semibold uppercase tracking-wider font-heading"
             style={{ color: "#fbbf24" }}
           >
             {phase.name}{" "}
@@ -72,6 +159,11 @@ export function PlanWeeks({ weeklyData, currentWeek }: PlanWeeksProps) {
               (W{phase.weeks[0]}–{phase.weeks[1]}) &middot; {phase.focus}
             </span>
           </h2>
+          <PhaseSummary
+            phase={phase}
+            weeklyData={weeklyData}
+            currentWeek={currentWeek}
+          />
           <div className="grid gap-2 sm:grid-cols-2">
             {Array.from(
               { length: phase.weeks[1] - phase.weeks[0] + 1 },
@@ -171,6 +263,9 @@ export function PlanWeeks({ weeklyData, currentWeek }: PlanWeeksProps) {
                       className="border-t px-3 pb-3 pt-2"
                       style={{ borderColor: "#44403c" }}
                     >
+                      {/* Day-by-day grid */}
+                      {data.runs.length > 0 && <DayGrid runs={data.runs} />}
+
                       {data.runs.length === 0 ? (
                         <p className="text-xs text-muted-foreground py-1">
                           {isPast
@@ -179,10 +274,12 @@ export function PlanWeeks({ weeklyData, currentWeek }: PlanWeeksProps) {
                         </p>
                       ) : (
                         <div className="space-y-1.5">
-                          {data.runs.map((run, idx) => (
-                            <div
-                              key={idx}
-                              className="flex items-center justify-between rounded-md px-2.5 py-1.5 text-xs"
+                          {data.runs.map((run) => (
+                            <Link
+                              key={run.id}
+                              href={`/log/${run.id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex items-center justify-between rounded-md px-2.5 py-1.5 text-xs transition-colors hover:ring-1 hover:ring-[#fbbf24]/40"
                               style={{ background: "#1c1917" }}
                             >
                               <div className="flex items-center gap-2 min-w-0">
@@ -201,7 +298,7 @@ export function PlanWeeks({ weeklyData, currentWeek }: PlanWeeksProps) {
                                 {run.avg_hr && <span>{run.avg_hr} bpm</span>}
                                 <span>{formatDuration(run.duration_sec)}</span>
                               </div>
-                            </div>
+                            </Link>
                           ))}
                           {/* Week summary */}
                           <div className="flex justify-between pt-1 text-[10px] text-muted-foreground">

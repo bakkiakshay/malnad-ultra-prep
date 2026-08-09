@@ -12,6 +12,10 @@ import { WeeklyChart } from "@/components/dashboard/weekly-chart";
 import { TrendCharts } from "@/components/dashboard/trend-charts";
 import { RecentActivities } from "@/components/dashboard/recent-activities";
 import { RacePredictor } from "@/components/dashboard/race-predictor";
+import { HrZoneChart } from "@/components/dashboard/hr-zone-chart";
+import { RhrTrend } from "@/components/dashboard/rhr-trend";
+import { WeekComparison } from "@/components/dashboard/week-comparison";
+import { PersonalRecords } from "@/components/dashboard/personal-records";
 import { formatDuration } from "@/lib/format";
 import type { Activity } from "@/lib/database.types";
 
@@ -62,6 +66,7 @@ export default async function DashboardPage() {
   let latestCtl: number | null = null;
   let latestAtl: number | null = null;
   let latestRhr: number | null = null;
+  let rhrData: { date: string; rhr: number }[] = [];
   let error: string | null = null;
 
   try {
@@ -87,6 +92,15 @@ export default async function DashboardPage() {
     if (rhrEntries.length > 0) {
       latestRhr = rhrEntries[0].restingHR;
     }
+
+    // Extract RHR trend data for the sparkline
+    rhrData = rawWellness
+      .filter((w) => w.restingHR != null && w.restingHR > 0)
+      .map((w) => ({
+        date: w.id,
+        rhr: w.restingHR as number,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   } catch (e) {
     error = e instanceof Error ? e.message : "Failed to fetch data";
   }
@@ -193,6 +207,18 @@ export default async function DashboardPage() {
           sub={tsb != null ? `Form: ${tsb > 0 ? "+" : ""}${tsb} · RHR ${latestRhr ?? "—"}` : latestRhr != null ? `RHR ${latestRhr} bpm` : undefined}
           hint="CTL (fitness) = 42-day training load average. ATL (fatigue) = 7-day average. Form = CTL − ATL. Positive form = rested, negative = fatigued. Race at +5 to +15."
         />
+      </div>
+
+      {/* HR Zone + RHR Trend + Week Comparison row */}
+      <div className="mb-6 grid gap-4 lg:grid-cols-3">
+        <HrZoneChart activities={activities} />
+        <RhrTrend data={rhrData} />
+        <WeekComparison activities={activities} />
+      </div>
+
+      {/* Personal Records strip */}
+      <div className="mb-6">
+        <PersonalRecords activities={activities} />
       </div>
 
       {/* Weekly volume + race predictor */}

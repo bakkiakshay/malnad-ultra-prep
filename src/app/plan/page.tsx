@@ -8,6 +8,7 @@ import {
   RACE,
 } from "@/lib/config";
 import { PlanWeeks } from "@/components/plan/plan-weeks";
+import { TrainingArc } from "@/components/plan/training-arc";
 
 export const revalidate = 3600;
 
@@ -24,6 +25,7 @@ function getWeekDates(weekNum: number): { start: string; end: string } {
 }
 
 interface WeekRun {
+  id: string;
   date: string;
   name: string;
   distance_km: number;
@@ -50,6 +52,7 @@ export default async function PlanPage() {
   try {
     const raw = await fetchActivities(PLAN_START, today);
     const activities = raw.map((a) => ({
+      id: a.id,
       date: a.start_date_local?.slice(0, 10) ?? "",
       name: a.name ?? "Run",
       distance_km: a.distance ? a.distance / 1000 : 0,
@@ -90,9 +93,36 @@ export default async function PlanPage() {
 
   const totalPlanned = WEEKLY_TARGETS_KM.reduce((s, v) => s + v, 0);
   const totalActual = weeklyData.reduce((s, w) => s + w.distance, 0);
+  const remaining = Math.max(0, totalPlanned - totalActual);
+  const compliancePct = totalPlanned > 0 ? Math.min((totalActual / totalPlanned) * 100, 100) : 0;
+
+  // Calculate planned-so-far (only weeks up to current)
+  const plannedSoFar = weeklyData
+    .filter((w) => w.week <= currentWeek)
+    .reduce((s, w) => s + w.target, 0);
+  const actualPct = plannedSoFar > 0 ? Math.min((totalActual / plannedSoFar) * 100, 100) : 0;
+
+  // Streak: consecutive weeks (backwards from current) where actual >= 90% target
+  let streak = 0;
+  for (let i = currentWeek - 1; i >= 0; i--) {
+    const w = weeklyData[i];
+    if (!w || w.target === 0) break;
+    if (w.distance / w.target >= 0.9) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  // SVG progress ring params
+  const ringSize = 80;
+  const ringStroke = 6;
+  const ringRadius = (ringSize - ringStroke) / 2;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+  const ringOffset = ringCircumference - (actualPct / 100) * ringCircumference;
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6">
+    <div className="mx-auto max-w-5xl px-4 py-6">
       <div className="mb-6">
         <h1 className="text-xl font-bold tracking-tight font-heading" style={{ color: "#fbbf24" }}>
           Training Plan
@@ -102,19 +132,90 @@ export default async function PlanPage() {
         </p>
       </div>
 
-      {/* Summary bar */}
-      <div className="mb-6 grid grid-cols-3 gap-3">
-        <div className="rounded-lg p-3 text-center" style={{ background: "#292524", border: "1px solid #44403c" }}>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">Completed</p>
-          <p className="text-xl font-bold tabular-nums">{totalActual.toFixed(0)} <span className="text-xs font-normal text-muted-foreground">km</span></p>
+      {/* Training Arc Chart */}
+      <div className="mb-6">
+        <TrainingArc weeklyData={weeklyData} currentWeek={currentWeek} />
+      </div>
+
+      {/* Richer Summary Bar */}
+      <div
+        className="mb-6 flex flex-col sm:flex-row items-center gap-4 rounded-lg p-4"
+        style={{ background: "#292524", border: "1px solid #44403c" }}
+      >
+        {/* Progress Ring */}
+        <div className="flex-shrink-0 flex flex-col items-center">
+          <svg width={ringSize} height={ringSize} className="-rotate-90">
+            <circle
+              cx={ringSize / 2}
+              cy={ringSize / 2}
+              r={ringRadius}
+              fill="none"
+              stroke="#44403c"
+              strokeWidth={ringStroke}
+            />
+            <circle
+              cx={ringSize / 2}
+              cy={ringSize / 2}
+              r={ringRadius}
+              fill="none"
+              stroke={actualPct >= 90 ? "#22c55e" : actualPct >= 70 ? "#fbbf24" : "#ef4444"}
+              strokeWidth={ringStroke}
+              strokeDasharray={ringCircumference}
+              strokeDashoffset={ringOffset}
+              strokeLinecap="round"
+            />
+          </svg>
+          <span className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">
+            Compliance
+          </span>
         </div>
-        <div className="rounded-lg p-3 text-center" style={{ background: "#292524", border: "1px solid #44403c" }}>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">Planned</p>
-          <p className="text-xl font-bold tabular-nums">{totalPlanned} <span className="text-xs font-normal text-muted-foreground">km</span></p>
-        </div>
-        <div className="rounded-lg p-3 text-center" style={{ background: "#292524", border: "1px solid #44403c" }}>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">Remaining</p>
-          <p className="text-xl font-bold tabular-nums">{Math.max(0, totalPlanned - totalActual).toFixed(0)} <span className="text-xs font-normal text-muted-foreground">km</span></p>
+
+        {/* Stats */}
+        <div className="flex flex-1 justify-around gap-4 text-center">
+          <div>
+            <p className="text-2xl font-bold tabular-nums">
+              {totalActual.toFixed(0)}
+            </p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">
+              km done
+            </p>
+          </div>
+          <div
+            className="hidden sm:block"
+            style={{ width: 1, background: "#44403c" }}
+          />
+          <div>
+            <p className="text-2xl font-bold tabular-nums">
+              {remaining.toFixed(0)}
+            </p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">
+              km left
+            </p>
+          </div>
+          <div
+            className="hidden sm:block"
+            style={{ width: 1, background: "#44403c" }}
+          />
+          <div>
+            <p className="text-2xl font-bold tabular-nums" style={{ color: streak > 0 ? "#22c55e" : "#a8a29e" }}>
+              {streak}
+            </p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">
+              week streak
+            </p>
+          </div>
+          <div
+            className="hidden sm:block"
+            style={{ width: 1, background: "#44403c" }}
+          />
+          <div>
+            <p className="text-2xl font-bold tabular-nums" style={{ color: "#fbbf24" }}>
+              {Math.round(actualPct)}%
+            </p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground font-heading">
+              on track
+            </p>
+          </div>
         </div>
       </div>
 

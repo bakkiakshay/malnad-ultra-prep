@@ -1,6 +1,7 @@
 import { fetchActivities } from "@/lib/intervals";
 import { PLAN_START } from "@/lib/config";
 import { ActivityLogTable } from "./activity-log-table";
+import { SummaryStats } from "./summary-stats";
 import type { Activity } from "@/lib/database.types";
 
 export const revalidate = 3600;
@@ -52,12 +53,15 @@ export default async function LogPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
-      <h1 className="mb-4 text-xl font-bold tracking-tight">Activity Log</h1>
+      <h1 className="mb-4 text-xl font-bold tracking-tight text-[#fbbf24] font-heading">
+        Activity Log
+      </h1>
       {error && (
         <div className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       )}
+      <SummaryStats activities={activities} />
       <ActivityLogTable activities={activities} />
     </div>
   );
