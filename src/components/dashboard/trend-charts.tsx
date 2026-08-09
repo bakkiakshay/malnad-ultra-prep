@@ -15,18 +15,19 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Activity } from "@/lib/database.types";
-import { PLAN_START, PLAN_WEEKS, WEEKLY_TARGETS_KM, getCurrentWeek, RACE } from "@/lib/config";
+import { PLAN_START, PLAN_WEEKS, getCurrentWeek, RACE, Z2_RANGE, LTHR } from "@/lib/config";
 
 interface TrendChartsProps {
   activities: Activity[];
 }
 
-type Metric = "pace" | "hr" | "cadence";
+type Metric = "pace" | "z2pace" | "hr" | "cadence";
 
-const METRIC_CONFIG: Record<Metric, { label: string; color: string; unit: string }> = {
-  pace: { label: "Avg Pace", color: "#22c55e", unit: " min/km" },
-  hr: { label: "Avg HR", color: "#ef4444", unit: " bpm" },
-  cadence: { label: "Cadence", color: "#3b82f6", unit: " spm" },
+const METRIC_CONFIG: Record<Metric, { label: string; color: string }> = {
+  pace: { label: "Avg Pace", color: "#22c55e" },
+  z2pace: { label: "Z2 Pace", color: "#a3e635" },
+  hr: { label: "Avg HR", color: "#ef4444" },
+  cadence: { label: "Cadence", color: "#3b82f6" },
 };
 
 function formatPaceValue(v: number): string {
@@ -53,7 +54,7 @@ const tooltipStyle = {
 };
 
 export function TrendCharts({ activities }: TrendChartsProps) {
-  const [active, setActive] = useState<Set<Metric>>(new Set(["pace", "hr", "cadence"]));
+  const [active, setActive] = useState<Set<Metric>>(new Set(["pace", "z2pace", "hr", "cadence"]));
 
   function toggle(m: Metric) {
     setActive((prev) => {
@@ -71,12 +72,19 @@ export function TrendCharts({ activities }: TrendChartsProps) {
 
   const chartData = sorted
     .filter((a) => a.avg_pace_min_km != null || a.avg_hr != null || a.avg_cadence != null)
-    .map((a) => ({
-      date: a.activity_date,
-      pace: a.avg_pace_min_km ?? undefined,
-      hr: a.avg_hr ?? undefined,
-      cadence: a.avg_cadence != null ? Math.round(a.avg_cadence * 2) : undefined,
-    }));
+    .map((a) => {
+      const isZ2 = a.avg_hr != null && a.avg_hr >= Z2_RANGE.low && a.avg_hr <= Z2_RANGE.high && a.avg_hr < LTHR;
+      return {
+        date: a.activity_date,
+        pace: a.avg_pace_min_km ?? undefined,
+        z2pace: isZ2 && a.avg_pace_min_km != null ? a.avg_pace_min_km : undefined,
+        hr: a.avg_hr ?? undefined,
+        cadence: a.avg_cadence != null ? Math.round(a.avg_cadence * 2) : undefined,
+      };
+    });
+
+  const hasPaceAxis = active.has("pace") || active.has("z2pace");
+  const hasRightAxis = active.has("hr") || active.has("cadence");
 
   // Weekly elevation data
   const currentWeek = getCurrentWeek();
@@ -95,8 +103,8 @@ export function TrendCharts({ activities }: TrendChartsProps) {
           <CardHeader className="pb-1">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <CardTitle className="text-sm font-medium font-heading">Training metrics</CardTitle>
-              <div className="flex items-center gap-1.5">
-                {(Object.entries(METRIC_CONFIG) as [Metric, typeof METRIC_CONFIG.pace][]).map(
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {(Object.entries(METRIC_CONFIG) as [Metric, (typeof METRIC_CONFIG)[Metric]][]).map(
                   ([key, cfg]) => (
                     <button
                       key={key}
@@ -129,7 +137,7 @@ export function TrendCharts({ activities }: TrendChartsProps) {
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={chartData} margin={{ left: -10, right: 4, top: 4, bottom: 0 }}>
                     <defs>
-                      {(Object.entries(METRIC_CONFIG) as [Metric, typeof METRIC_CONFIG.pace][]).map(
+                      {(Object.entries(METRIC_CONFIG) as [Metric, (typeof METRIC_CONFIG)[Metric]][]).map(
                         ([key, cfg]) => (
                           <linearGradient key={key} id={`grad-${key}`} x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor={cfg.color} stopOpacity={0.25} />
@@ -149,7 +157,7 @@ export function TrendCharts({ activities }: TrendChartsProps) {
                         return d.toLocaleDateString("en-IN", { month: "short", day: "numeric" });
                       }}
                     />
-                    {active.has("pace") && (
+                    {hasPaceAxis && (
                       <YAxis
                         yAxisId="pace"
                         orientation="left"
@@ -161,7 +169,7 @@ export function TrendCharts({ activities }: TrendChartsProps) {
                         tickFormatter={(v: number) => formatPaceValue(v)}
                       />
                     )}
-                    {(active.has("hr") || active.has("cadence")) && (
+                    {hasRightAxis && (
                       <YAxis
                         yAxisId="right"
                         orientation="right"
@@ -176,11 +184,13 @@ export function TrendCharts({ activities }: TrendChartsProps) {
                       itemStyle={{ color: "#e7e5e4" }}
                       labelStyle={{ color: "#fbbf24", fontWeight: 600, marginBottom: 4 }}
                       cursor={{ stroke: "#fbbf24", strokeWidth: 1, strokeDasharray: "4 4" }}
-                      formatter={(value: number, name: string) => {
-                        if (name === "pace") return [formatPaceValue(value) + " /km", "Avg Pace"];
-                        if (name === "hr") return [value + " bpm", "Avg HR"];
-                        if (name === "cadence") return [value + " spm", "Cadence"];
-                        return [value, name];
+                      formatter={(value, name) => {
+                        const v = Number(value);
+                        if (name === "pace") return [formatPaceValue(v) + " /km", "Avg Pace"];
+                        if (name === "z2pace") return [formatPaceValue(v) + " /km", "Z2 Pace"];
+                        if (name === "hr") return [v + " bpm", "Avg HR"];
+                        if (name === "cadence") return [v + " spm", "Cadence"];
+                        return [v, String(name)];
                       }}
                       labelFormatter={(label) => {
                         const d = new Date(String(label) + "T00:00:00");
@@ -201,6 +211,20 @@ export function TrendCharts({ activities }: TrendChartsProps) {
                         fill="url(#grad-pace)"
                         dot={{ r: 3, fill: "#22c55e", stroke: "#292524", strokeWidth: 2 }}
                         activeDot={{ r: 5, fill: "#22c55e" }}
+                        connectNulls
+                      />
+                    )}
+                    {active.has("z2pace") && (
+                      <Area
+                        yAxisId="pace"
+                        type="monotone"
+                        dataKey="z2pace"
+                        stroke="#a3e635"
+                        strokeWidth={2}
+                        strokeDasharray="6 3"
+                        fill="url(#grad-z2pace)"
+                        dot={{ r: 3, fill: "#a3e635", stroke: "#292524", strokeWidth: 2 }}
+                        activeDot={{ r: 5, fill: "#a3e635" }}
                         connectNulls
                       />
                     )}
@@ -269,7 +293,7 @@ export function TrendCharts({ activities }: TrendChartsProps) {
                   itemStyle={{ color: "#e7e5e4" }}
                   labelStyle={{ color: "#fbbf24", fontWeight: 600, marginBottom: 4 }}
                   cursor={{ fill: "rgba(251,191,36,0.08)" }}
-                  formatter={(value: number) => [`${value} m`, "Elevation"]}
+                  formatter={(value) => [`${Number(value)} m`, "Elevation"]}
                 />
                 <ReferenceLine
                   x={`W${currentWeek}`}

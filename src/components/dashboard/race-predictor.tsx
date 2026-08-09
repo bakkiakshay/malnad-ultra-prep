@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Activity } from "@/lib/database.types";
 import { RACE } from "@/lib/config";
@@ -16,14 +16,20 @@ function getElevationAdjustment(elevationM: number): number {
 function formatHM(totalSec: number): string {
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
-  return `${h}h ${m}m`;
+  return `${h}h ${String(m).padStart(2, "0")}m`;
 }
 
-function paceToLabel(paceMinKm: number): string {
+function paceFromTime(totalSec: number): string {
+  const paceMinKm = totalSec / RACE.distance_km / 60;
   const mins = Math.floor(paceMinKm);
   const secs = Math.round((paceMinKm - mins) * 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
+
+const MIN_TIME_H = 8;
+const MAX_TIME_H = 24;
+const MIN_SEC = MIN_TIME_H * 3600;
+const MAX_SEC = MAX_TIME_H * 3600;
 
 export function RacePredictor({ activities }: RacePredictorProps) {
   const longRuns = activities
@@ -31,120 +37,160 @@ export function RacePredictor({ activities }: RacePredictorProps) {
     .sort((a, b) => b.distance_km - a.distance_km);
 
   const bestRun = longRuns[0] ?? null;
-  const defaultPace = bestRun
-    ? Math.round(bestRun.avg_pace_min_km! * 10) / 10
+  const avgPace = longRuns.length > 0
+    ? longRuns.reduce((s, a) => s + a.avg_pace_min_km!, 0) / longRuns.length
     : 8.0;
 
-  const [paceMinKm, setPaceMinKm] = useState(defaultPace);
-
-  const flatTimeSec = paceMinKm * 60 * RACE.distance_km;
+  const flatTimeSec = avgPace * 60 * RACE.distance_km;
   const elevAdj = getElevationAdjustment(RACE.elevation_m);
-  const predictedSec = flatTimeSec + elevAdj;
+  const calculatedSec = Math.round(flatTimeSec + elevAdj);
+  const clampedDefault = Math.max(MIN_SEC, Math.min(MAX_SEC, calculatedSec));
 
-  const optimistic = predictedSec * 0.92;
-  const conservative = predictedSec * 1.1;
+  const [timeSec, setTimeSec] = useState(clampedDefault);
+  const [dragging, setDragging] = useState(false);
+  const barRef = useRef<HTMLDivElement>(null);
 
-  const actualPace = predictedSec / RACE.distance_km / 60;
+  const pct = ((timeSec - MIN_SEC) / (MAX_SEC - MIN_SEC)) * 100;
+  const isDefault = timeSec === clampedDefault;
 
-  const MIN_PACE = 5.0;
-  const MAX_PACE = 12.0;
-  const pctSlider = ((paceMinKm - MIN_PACE) / (MAX_PACE - MIN_PACE)) * 100;
+  const updateFromX = useCallback((clientX: number) => {
+    if (!barRef.current) return;
+    const rect = barRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    const ratio = x / rect.width;
+    const newSec = Math.round((MIN_SEC + ratio * (MAX_SEC - MIN_SEC)) / 60) * 60;
+    setTimeSec(Math.max(MIN_SEC, Math.min(MAX_SEC, newSec)));
+  }, []);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => { e.preventDefault(); updateFromX(e.clientX); };
+    const onUp = () => setDragging(false);
+    const onTouchMove = (e: TouchEvent) => { e.preventDefault(); updateFromX(e.touches[0].clientX); };
+    const onTouchEnd = () => setDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("touchend", onTouchEnd);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [dragging, updateFromX]);
+
+  const tickHours = [];
+  for (let h = MIN_TIME_H; h <= MAX_TIME_H; h += 2) {
+    tickHours.push(h);
+  }
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium font-heading">Race time predictor</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium font-heading">Race time predictor</CardTitle>
+          {!isDefault && (
+            <button
+              onClick={() => setTimeSec(clampedDefault)}
+              className="text-[10px] text-muted-foreground hover:text-[#fbbf24] transition-colors"
+            >
+              Reset
+            </button>
+          )}
+        </div>
         <p className="text-xs text-muted-foreground">
-          Drag the pace slider to explore finish times for {RACE.distance_km}km + {RACE.elevation_m}m D+
+          {RACE.distance_km}km + {RACE.elevation_m}m D+ &middot; Drag the bar to explore
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Predicted time */}
+        {/* Time display */}
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-bold tabular-nums" style={{ color: "#fbbf24" }}>
-            {formatHM(predictedSec)}
+            {formatHM(timeSec)}
           </span>
           <span className="text-sm text-muted-foreground tabular-nums">
-            {paceToLabel(actualPace)} /km avg
+            {paceFromTime(timeSec)} /km avg
           </span>
         </div>
 
-        {/* Pace slider */}
+        {/* Single draggable bar */}
         <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Target flat pace
-            </span>
-            <span className="text-sm font-bold tabular-nums" style={{ color: "#fbbf24" }}>
-              {paceToLabel(paceMinKm)} /km
-            </span>
-          </div>
-          <div className="relative">
-            <input
-              type="range"
-              min={MIN_PACE * 10}
-              max={MAX_PACE * 10}
-              step={1}
-              value={paceMinKm * 10}
-              onChange={(e) => setPaceMinKm(Number(e.target.value) / 10)}
-              className="w-full h-2 rounded-full appearance-none cursor-pointer"
+          <div
+            ref={barRef}
+            className="relative h-5 rounded-full cursor-pointer select-none"
+            style={{ background: "#44403c" }}
+            onMouseDown={(e) => { setDragging(true); updateFromX(e.clientX); }}
+            onTouchStart={(e) => { setDragging(true); updateFromX(e.touches[0].clientX); }}
+          >
+            {/* Filled portion */}
+            <div
+              className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
               style={{
-                background: `linear-gradient(to right, #22c55e ${pctSlider * 0.5}%, #fbbf24 ${pctSlider}%, #44403c ${pctSlider}%)`,
+                width: `${pct}%`,
+                background: pct < 30
+                  ? "linear-gradient(to right, #22c55e, #fbbf24)"
+                  : pct < 60
+                  ? "linear-gradient(to right, #22c55e, #fbbf24, #f97316)"
+                  : "linear-gradient(to right, #22c55e, #fbbf24, #f97316, #ef4444)",
               }}
             />
-            <style>{`
-              input[type="range"]::-webkit-slider-thumb {
-                -webkit-appearance: none;
-                appearance: none;
-                width: 18px;
-                height: 18px;
-                border-radius: 50%;
-                background: #fbbf24;
-                border: 2px solid #1c1917;
-                cursor: pointer;
-                box-shadow: 0 0 0 3px rgba(251,191,36,0.25);
-              }
-              input[type="range"]::-moz-range-thumb {
-                width: 18px;
-                height: 18px;
-                border-radius: 50%;
-                background: #fbbf24;
-                border: 2px solid #1c1917;
-                cursor: pointer;
-                box-shadow: 0 0 0 3px rgba(251,191,36,0.25);
-              }
-            `}</style>
+            {/* Calculated marker */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-0.5 h-7 rounded-full"
+              style={{
+                left: `${((clampedDefault - MIN_SEC) / (MAX_SEC - MIN_SEC)) * 100}%`,
+                background: "rgba(255,255,255,0.5)",
+              }}
+              title={`Calculated: ${formatHM(clampedDefault)}`}
+            />
+            {/* Thumb */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-[left] duration-75"
+              style={{
+                left: `${pct}%`,
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                background: "#fbbf24",
+                border: "3px solid #1c1917",
+                boxShadow: dragging
+                  ? "0 0 0 4px rgba(251,191,36,0.35)"
+                  : "0 0 0 2px rgba(251,191,36,0.2)",
+                cursor: "grab",
+              }}
+            />
           </div>
-          <div className="flex justify-between mt-1 text-[10px] text-muted-foreground tabular-nums">
-            <span>5:00 (fast)</span>
-            <span>12:00 (hike)</span>
+          {/* Hour ticks */}
+          <div className="relative mt-1 h-3">
+            {tickHours.map((h) => {
+              const tickPct = ((h * 3600 - MIN_SEC) / (MAX_SEC - MIN_SEC)) * 100;
+              return (
+                <span
+                  key={h}
+                  className="absolute text-[9px] tabular-nums text-muted-foreground -translate-x-1/2"
+                  style={{ left: `${tickPct}%` }}
+                >
+                  {h}h
+                </span>
+              );
+            })}
           </div>
         </div>
 
         {/* Best/conservative range */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Best case</span>
-            <span className="tabular-nums font-medium">{formatHM(optimistic)}</span>
+        <div className="flex items-center justify-between text-xs">
+          <div>
+            <span className="text-muted-foreground">Best case </span>
+            <span className="tabular-nums font-medium" style={{ color: "#22c55e" }}>
+              {formatHM(timeSec * 0.92)}
+            </span>
           </div>
-          <div className="relative h-2 rounded-full" style={{ background: "#44403c" }}>
-            <div
-              className="absolute inset-y-0 left-0 rounded-full"
-              style={{
-                width: `${((optimistic / conservative) * 100).toFixed(0)}%`,
-                background: "linear-gradient(to right, #22c55e, #fbbf24, #ef4444)",
-              }}
-            />
-            <div
-              className="absolute top-1/2 -translate-y-1/2 h-4 w-1 rounded-full bg-white"
-              style={{
-                left: `${((predictedSec / conservative) * 100).toFixed(0)}%`,
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Conservative</span>
-            <span className="tabular-nums font-medium">{formatHM(conservative)}</span>
+          <div>
+            <span className="text-muted-foreground">Conservative </span>
+            <span className="tabular-nums font-medium" style={{ color: "#f97316" }}>
+              {formatHM(timeSec * 1.1)}
+            </span>
           </div>
         </div>
 
@@ -153,8 +199,9 @@ export function RacePredictor({ activities }: RacePredictorProps) {
             className="rounded-md px-2.5 py-1.5 text-[10px] leading-relaxed"
             style={{ background: "rgba(251,191,36,0.08)", borderLeft: "2px solid #fbbf24" }}
           >
-            Your longest run: {bestRun.distance_km.toFixed(1)}km at {paceToLabel(bestRun.avg_pace_min_km!)} /km.
-            Elevation adds ~{Math.round(elevAdj / 60)} min to the flat prediction.
+            Based on {longRuns.length} runs (avg {paceFromTime(Math.round(avgPace * 60 * RACE.distance_km + elevAdj))} /km).
+            Longest: {bestRun.distance_km.toFixed(1)}km.
+            Elevation adds ~{Math.round(elevAdj / 60)} min.
           </div>
         )}
       </CardContent>
