@@ -31,6 +31,35 @@ function useCountdown() {
   return { days, hours, minutes, seconds };
 }
 
+function FlipUnit({ value, label }: { value: number; label: string }) {
+  const display = String(value).padStart(label === "DAYS" ? 3 : 2, "0");
+
+  return (
+    <div className="flex flex-col items-center">
+      <div
+        className="relative overflow-hidden rounded-md"
+        style={{
+          background: "linear-gradient(to bottom, #3a3532 0%, #3a3532 49.5%, #44403c 49.5%, #44403c 50.5%, #2c2825 50.5%, #2c2825 100%)",
+          boxShadow: "0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)",
+        }}
+      >
+        <span
+          className="block px-2 py-1 text-xl font-bold tabular-nums leading-none font-heading"
+          style={{ color: "#fbbf24", textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
+        >
+          {display}
+        </span>
+      </div>
+      <span
+        className="mt-0.5 text-[7px] font-semibold uppercase tracking-widest"
+        style={{ color: "#78716c" }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
 export function Nav() {
   const pathname = usePathname();
   const { days, hours, minutes, seconds } = useCountdown();
@@ -64,15 +93,14 @@ export function Nav() {
             );
           })}
         </nav>
-        <div className="ml-auto flex items-center gap-1 tabular-nums" style={{ color: "#fbbf24" }}>
-          <span className="text-lg font-bold">{days}</span>
-          <span className="text-[10px] text-muted-foreground mr-1">d</span>
-          <span className="text-sm font-semibold">{String(hours).padStart(2, "0")}</span>
-          <span className="text-[10px] text-muted-foreground">h</span>
-          <span className="text-sm font-semibold">{String(minutes).padStart(2, "0")}</span>
-          <span className="text-[10px] text-muted-foreground">m</span>
-          <span className="text-sm font-semibold">{String(seconds).padStart(2, "0")}</span>
-          <span className="text-[10px] text-muted-foreground">s</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <FlipUnit value={days} label="DAYS" />
+          <span className="text-sm font-bold pb-3" style={{ color: "#fbbf24" }}>:</span>
+          <FlipUnit value={hours} label="HRS" />
+          <span className="text-sm font-bold pb-3" style={{ color: "#fbbf24" }}>:</span>
+          <FlipUnit value={minutes} label="MIN" />
+          <span className="text-sm font-bold pb-3" style={{ color: "#fbbf24" }}>:</span>
+          <FlipUnit value={seconds} label="SEC" />
         </div>
       </div>
     </header>

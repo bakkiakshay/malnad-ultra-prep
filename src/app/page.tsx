@@ -97,38 +97,12 @@ export default async function DashboardPage() {
 
   const totalKm = activities.reduce((sum, a) => sum + a.distance_km, 0);
   const totalTime = activities.reduce((sum, a) => sum + a.duration_sec, 0);
-  const totalElevation = activities.reduce(
-    (sum, a) => sum + (a.elevation_gain_m ?? 0),
-    0
-  );
   const longestRun = activities.reduce(
     (max, a) => Math.max(max, a.distance_km),
     0
   );
   const totalPlanned = WEEKLY_TARGETS_KM.slice(0, week).reduce((s, v) => s + v, 0);
   const compliance = totalPlanned > 0 ? Math.round((totalKm / totalPlanned) * 100) : 0;
-
-  const runsThisWeek = activities.filter((a) => {
-    const planStart = new Date(PLAN_START);
-    const weekStart = new Date(planStart);
-    weekStart.setDate(planStart.getDate() + (week - 1) * 7);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    return a.activity_date >= weekStart.toISOString().slice(0, 10) &&
-           a.activity_date <= weekEnd.toISOString().slice(0, 10);
-  });
-  const weekKm = runsThisWeek.reduce((s, a) => s + a.distance_km, 0);
-  const weekTarget = WEEKLY_TARGETS_KM[week - 1] ?? 0;
-
-  const paceActivities = activities.filter(a => a.avg_pace_min_km != null);
-  const avgPace = paceActivities.length > 0
-    ? paceActivities.reduce((s, a) => s + a.avg_pace_min_km!, 0) / paceActivities.length
-    : null;
-
-  const cadenceActivities = activities.filter(a => a.avg_cadence != null);
-  const avgCadence = cadenceActivities.length > 0
-    ? Math.round(cadenceActivities.reduce((s, a) => s + a.avg_cadence! * 2, 0) / cadenceActivities.length)
-    : null;
 
   const tsb = latestCtl != null && latestAtl != null ? Math.round(latestCtl - latestAtl) : null;
 
@@ -193,8 +167,8 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Top stats row */}
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {/* Stats row */}
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
           label="Total Distance"
           value={totalKm.toFixed(1)}
@@ -208,12 +182,6 @@ export default async function DashboardPage() {
           hint="Time on feet matters more than pace for ultra training. Build this gradually."
         />
         <StatCard
-          label="Elevation"
-          value={Math.round(totalElevation).toLocaleString()}
-          unit="m"
-          hint={`Cumulative climbing. Race has ${RACE.elevation_m}m D+ — aim to exceed this in training.`}
-        />
-        <StatCard
           label="Longest Run"
           value={longestRun.toFixed(1)}
           unit="km"
@@ -225,29 +193,6 @@ export default async function DashboardPage() {
           unit={latestAtl != null ? `/ ${latestAtl.toFixed(0)}` : ""}
           sub={tsb != null ? `Form: ${tsb > 0 ? "+" : ""}${tsb} · RHR ${latestRhr ?? "—"}` : latestRhr != null ? `RHR ${latestRhr} bpm` : undefined}
           hint="CTL (fitness) = 42-day training load average. ATL (fatigue) = 7-day average. Form = CTL − ATL. Positive form = rested, negative = fatigued. Race at +5 to +15."
-        />
-      </div>
-
-      {/* This week + key metrics row */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <StatCard
-          label="This Week"
-          value={weekKm.toFixed(1)}
-          unit={`/ ${weekTarget} km`}
-          sub={`${runsThisWeek.length} runs · Mon–Sun`}
-          hint="Distance logged this training week (Mon–Sun). Your Sunday long run counts in the current week."
-        />
-        <StatCard
-          label="Avg Pace"
-          value={avgPace != null ? `${Math.floor(avgPace)}:${Math.round((avgPace % 1) * 60).toString().padStart(2, "0")}` : "—"}
-          unit="/km"
-          hint="Average pace across all runs. For ultra training, most runs should be slow (Z2). Watch this stay easy."
-        />
-        <StatCard
-          label="Avg Cadence"
-          value={avgCadence ?? "—"}
-          unit="spm"
-          hint="Steps per minute (both feet). 170-180 spm is efficient for most runners. Higher cadence = less impact per step."
         />
       </div>
 
