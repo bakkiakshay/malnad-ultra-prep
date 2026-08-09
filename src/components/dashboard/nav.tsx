@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { getDaysToRace } from "@/lib/config";
+import { RACE } from "@/lib/config";
 
 const links = [
   { href: "/", label: "Dashboard" },
@@ -11,14 +12,33 @@ const links = [
   { href: "/plan", label: "Plan" },
 ];
 
+function useCountdown() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const race = new Date(RACE.date + "T06:00:00+05:30");
+  const diff = Math.max(0, race.getTime() - now.getTime());
+
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+  return { days, hours, minutes, seconds };
+}
+
 export function Nav() {
   const pathname = usePathname();
-  const days = getDaysToRace();
+  const { days, hours, minutes, seconds } = useCountdown();
 
   return (
     <header className="border-b" style={{ borderColor: "#44403c", background: "#292524" }}>
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
-        <Link href="/" className="font-bold tracking-tight" style={{ color: "#fbbf24" }}>
+        <Link href="/" className="font-bold tracking-tight font-heading" style={{ color: "#fbbf24" }}>
           Malnad Ultra Prep
         </Link>
         <nav className="flex gap-1">
@@ -44,10 +64,15 @@ export function Nav() {
             );
           })}
         </nav>
-        <div className="ml-auto flex items-center gap-3">
-          <span className="text-xs tabular-nums font-medium" style={{ color: "#fbbf24" }}>
-            {days}d to race
-          </span>
+        <div className="ml-auto flex items-center gap-1 tabular-nums" style={{ color: "#fbbf24" }}>
+          <span className="text-lg font-bold">{days}</span>
+          <span className="text-[10px] text-muted-foreground mr-1">d</span>
+          <span className="text-sm font-semibold">{String(hours).padStart(2, "0")}</span>
+          <span className="text-[10px] text-muted-foreground">h</span>
+          <span className="text-sm font-semibold">{String(minutes).padStart(2, "0")}</span>
+          <span className="text-[10px] text-muted-foreground">m</span>
+          <span className="text-sm font-semibold">{String(seconds).padStart(2, "0")}</span>
+          <span className="text-[10px] text-muted-foreground">s</span>
         </div>
       </div>
     </header>

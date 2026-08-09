@@ -1,9 +1,9 @@
 import { fetchActivities, fetchWellness } from "@/lib/intervals";
 import {
   PLAN_START,
+  PLAN_WEEKS,
   getCurrentWeek,
   getCurrentPhase,
-  getDaysToRace,
   RACE,
   WEEKLY_TARGETS_KM,
 } from "@/lib/config";
@@ -94,7 +94,7 @@ export default async function DashboardPage() {
 
   const week = getCurrentWeek();
   const phase = getCurrentPhase();
-  const daysToRace = getDaysToRace();
+
   const totalKm = activities.reduce((sum, a) => sum + a.distance_km, 0);
   const totalTime = activities.reduce((sum, a) => sum + a.duration_sec, 0);
   const totalElevation = activities.reduce(
@@ -134,13 +134,57 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
-      <div className="mb-6">
+      <div className="mb-2">
         <h1 className="text-2xl font-bold tracking-tight font-heading" style={{ color: "#fbbf24" }}>
           Akshay&apos;s Malnad Ultra Prep
         </h1>
         <p className="text-sm text-muted-foreground">
           {RACE.name} &middot; {RACE.date} &middot; {RACE.terrain} &middot; {RACE.elevation_m}m D+
         </p>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-semibold text-muted-foreground font-heading uppercase tracking-widest">
+            Week {week} of {PLAN_WEEKS} &middot; {phase?.name}
+          </span>
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {totalKm.toFixed(0)} / {WEEKLY_TARGETS_KM.reduce((s, v) => s + v, 0)} km planned
+          </span>
+        </div>
+        <div className="relative h-3 rounded-full overflow-hidden" style={{ background: "#44403c" }}>
+          {/* Week progress (background track) */}
+          <div
+            className="absolute inset-y-0 left-0 rounded-full opacity-20"
+            style={{
+              width: `${Math.min((week / PLAN_WEEKS) * 100, 100)}%`,
+              background: "#fbbf24",
+            }}
+          />
+          {/* Mileage progress (foreground) */}
+          <div
+            className="absolute inset-y-0 left-0 rounded-full transition-all"
+            style={{
+              width: `${Math.min((totalKm / WEEKLY_TARGETS_KM.reduce((s, v) => s + v, 0)) * 100, 100)}%`,
+              background: "linear-gradient(to right, #fbbf24, #f59e0b)",
+            }}
+          />
+          {/* Week marker */}
+          <div
+            className="absolute top-0 bottom-0 w-0.5"
+            style={{
+              left: `${(week / PLAN_WEEKS) * 100}%`,
+              background: "#e7e5e4",
+            }}
+          />
+        </div>
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-[10px] text-muted-foreground">{phase?.focus}</span>
+          <span className="text-[10px] tabular-nums" style={{ color: compliance >= 90 ? "#22c55e" : compliance >= 70 ? "#fbbf24" : "#ef4444" }}>
+            {compliance}% on track
+          </span>
+        </div>
       </div>
 
       {error && (
@@ -150,14 +194,7 @@ export default async function DashboardPage() {
       )}
 
       {/* Top stats row */}
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatCard
-          label="Days to Race"
-          value={daysToRace}
-          sub={`Week ${week} · ${phase?.name ?? ""}`}
-          highlight
-          hint="Countdown to race day. Weeks run Mon–Sun aligned to your plan start."
-        />
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label="Total Distance"
           value={totalKm.toFixed(1)}
