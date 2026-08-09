@@ -25,7 +25,7 @@ type Metric = "pace" | "z2pace" | "hr" | "cadence";
 
 const METRIC_CONFIG: Record<Metric, { label: string; color: string }> = {
   pace: { label: "Avg Pace", color: "#22c55e" },
-  z2pace: { label: "Z2 Pace", color: "#a3e635" },
+  z2pace: { label: "Easy Pace", color: "#a3e635" },
   hr: { label: "Avg HR", color: "#ef4444" },
   cadence: { label: "Cadence", color: "#3b82f6" },
 };
@@ -73,7 +73,7 @@ export function TrendCharts({ activities }: TrendChartsProps) {
   const chartData = sorted
     .filter((a) => a.avg_pace_min_km != null || a.avg_hr != null || a.avg_cadence != null)
     .map((a) => {
-      const isZ2 = a.avg_hr != null && a.avg_hr >= Z2_RANGE.low && a.avg_hr <= Z2_RANGE.high && a.avg_hr < LTHR;
+      const isZ2 = a.avg_hr != null && a.avg_hr <= Z2_RANGE.high;
       return {
         date: a.activity_date,
         pace: a.avg_pace_min_km ?? undefined,
@@ -187,7 +187,7 @@ export function TrendCharts({ activities }: TrendChartsProps) {
                       formatter={(value, name) => {
                         const v = Number(value);
                         if (name === "pace") return [formatPaceValue(v) + " /km", "Avg Pace"];
-                        if (name === "z2pace") return [formatPaceValue(v) + " /km", "Z2 Pace"];
+                        if (name === "z2pace") return [formatPaceValue(v) + " /km", "Easy Pace"];
                         if (name === "hr") return [v + " bpm", "Avg HR"];
                         if (name === "cadence") return [v + " spm", "Cadence"];
                         return [v, String(name)];

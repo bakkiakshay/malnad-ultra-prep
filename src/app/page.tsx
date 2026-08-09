@@ -12,7 +12,6 @@ import { WeeklyChart } from "@/components/dashboard/weekly-chart";
 import { TrendCharts } from "@/components/dashboard/trend-charts";
 import { RecentActivities } from "@/components/dashboard/recent-activities";
 import { RacePredictor } from "@/components/dashboard/race-predictor";
-import { RouteMap } from "@/components/dashboard/route-map";
 import { formatDuration } from "@/lib/format";
 import type { Activity } from "@/lib/database.types";
 
@@ -201,10 +200,7 @@ export default async function DashboardPage() {
         <div className="lg:col-span-2">
           <WeeklyChart activities={activities} />
         </div>
-        <div className="space-y-4">
-          <RacePredictor activities={activities} />
-          <RouteMap />
-        </div>
+        <RacePredictor activities={activities} />
       </div>
 
       {/* Trend charts */}

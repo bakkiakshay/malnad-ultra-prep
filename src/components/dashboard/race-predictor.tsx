@@ -9,9 +9,11 @@ interface RacePredictorProps {
   activities: Activity[];
 }
 
-function getElevationAdjustment(elevationM: number): number {
-  return elevationM * 0.6;
-}
+// Riegel formula: T2 = T1 × (D2/D1)^exponent
+// Standard marathon uses 1.06; ultra trail needs higher exponent
+// to account for cumulative fatigue over 100K
+const ULTRA_EXPONENT = 1.14;
+const ELEV_SEC_PER_M = 5;
 
 function formatHM(totalSec: number): string {
   const h = Math.floor(totalSec / 3600);
@@ -26,24 +28,26 @@ function paceFromTime(totalSec: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-const MIN_TIME_H = 8;
+const MIN_TIME_H = 10;
 const MAX_TIME_H = 24;
 const MIN_SEC = MIN_TIME_H * 3600;
 const MAX_SEC = MAX_TIME_H * 3600;
 
 export function RacePredictor({ activities }: RacePredictorProps) {
   const longRuns = activities
-    .filter((a) => a.distance_km >= 5 && a.duration_sec > 0 && a.avg_pace_min_km != null)
+    .filter((a) => a.distance_km >= 5 && a.duration_sec > 0)
     .sort((a, b) => b.distance_km - a.distance_km);
 
-  const bestRun = longRuns[0] ?? null;
-  const avgPace = longRuns.length > 0
-    ? longRuns.reduce((s, a) => s + a.avg_pace_min_km!, 0) / longRuns.length
-    : 8.0;
+  const refRun = longRuns[0] ?? null;
 
-  const flatTimeSec = avgPace * 60 * RACE.distance_km;
-  const elevAdj = getElevationAdjustment(RACE.elevation_m);
-  const calculatedSec = Math.round(flatTimeSec + elevAdj);
+  let calculatedSec: number;
+  if (refRun && refRun.distance_km > 0) {
+    const riegelTime = refRun.duration_sec * Math.pow(RACE.distance_km / refRun.distance_km, ULTRA_EXPONENT);
+    const elevAdj = RACE.elevation_m * ELEV_SEC_PER_M;
+    calculatedSec = Math.round(riegelTime + elevAdj);
+  } else {
+    calculatedSec = 18 * 3600;
+  }
   const clampedDefault = Math.max(MIN_SEC, Math.min(MAX_SEC, calculatedSec));
 
   const [timeSec, setTimeSec] = useState(clampedDefault);
@@ -194,14 +198,14 @@ export function RacePredictor({ activities }: RacePredictorProps) {
           </div>
         </div>
 
-        {bestRun && (
+        {refRun && (
           <div
             className="rounded-md px-2.5 py-1.5 text-[10px] leading-relaxed"
             style={{ background: "rgba(251,191,36,0.08)", borderLeft: "2px solid #fbbf24" }}
           >
-            Based on {longRuns.length} runs (avg {paceFromTime(Math.round(avgPace * 60 * RACE.distance_km + elevAdj))} /km).
-            Longest: {bestRun.distance_km.toFixed(1)}km.
-            Elevation adds ~{Math.round(elevAdj / 60)} min.
+            Riegel extrapolation from {refRun.distance_km.toFixed(1)}km run.
+            Elevation adds ~{Math.round((RACE.elevation_m * ELEV_SEC_PER_M) / 60)} min.
+            Prediction improves as you log longer runs.
           </div>
         )}
       </CardContent>
