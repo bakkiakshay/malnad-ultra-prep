@@ -228,20 +228,14 @@ export default async function DashboardPage() {
         />
       </div>
 
-      {/* This week + compliance row */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {/* This week + key metrics row */}
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard
           label="This Week"
           value={weekKm.toFixed(1)}
           unit={`/ ${weekTarget} km`}
           sub={`${runsThisWeek.length} runs · Mon–Sun`}
           hint="Distance logged this training week (Mon–Sun). Your Sunday long run counts in the current week."
-        />
-        <StatCard
-          label="Plan Compliance"
-          value={`${compliance}%`}
-          sub={`${totalKm.toFixed(0)} / ${totalPlanned} km target`}
-          hint="Actual distance vs planned distance through this week. 85-105% is the sweet spot — too far over risks injury."
         />
         <StatCard
           label="Avg Pace"
