@@ -3,116 +3,84 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface TrackPoint {
-  lat: number;
-  lon: number;
-  ele: number;
-}
-
-interface Waypoint {
-  lat: number;
-  lon: number;
-  name: string;
-}
+interface TrackPoint { lat: number; lon: number; ele: number }
+interface Waypoint { lat: number; lon: number; name: string }
 
 function parseGPX(xml: string): { track: TrackPoint[]; waypoints: Waypoint[] } {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xml, "text/xml");
-
   const track: TrackPoint[] = [];
   const trkpts = doc.getElementsByTagName("trkpt");
   for (let i = 0; i < trkpts.length; i++) {
     const pt = trkpts[i];
-    const lat = parseFloat(pt.getAttribute("lat") ?? "0");
-    const lon = parseFloat(pt.getAttribute("lon") ?? "0");
-    const eleEl = pt.getElementsByTagName("ele")[0];
-    const ele = eleEl ? parseFloat(eleEl.textContent ?? "0") : 0;
-    track.push({ lat, lon, ele });
+    track.push({
+      lat: parseFloat(pt.getAttribute("lat") ?? "0"),
+      lon: parseFloat(pt.getAttribute("lon") ?? "0"),
+      ele: parseFloat(pt.getElementsByTagName("ele")[0]?.textContent ?? "0"),
+    });
   }
-
   const waypoints: Waypoint[] = [];
   const wpts = doc.getElementsByTagName("wpt");
   for (let i = 0; i < wpts.length; i++) {
     const pt = wpts[i];
-    const lat = parseFloat(pt.getAttribute("lat") ?? "0");
-    const lon = parseFloat(pt.getAttribute("lon") ?? "0");
-    const nameEl = pt.getElementsByTagName("name")[0];
-    const name = nameEl?.textContent ?? "";
-    waypoints.push({ lat, lon, name });
+    waypoints.push({
+      lat: parseFloat(pt.getAttribute("lat") ?? "0"),
+      lon: parseFloat(pt.getAttribute("lon") ?? "0"),
+      name: pt.getElementsByTagName("name")[0]?.textContent ?? "",
+    });
   }
-
   return { track, waypoints };
 }
 
-function downsample(track: TrackPoint[], maxPoints: number): TrackPoint[] {
-  if (track.length <= maxPoints) return track;
-  const step = track.length / maxPoints;
-  const result: TrackPoint[] = [];
-  for (let i = 0; i < maxPoints; i++) {
-    result.push(track[Math.floor(i * step)]);
-  }
-  result.push(track[track.length - 1]);
-  return result;
+function downsample(track: TrackPoint[], n: number): TrackPoint[] {
+  if (track.length <= n) return track;
+  const step = track.length / n;
+  const out: TrackPoint[] = [];
+  for (let i = 0; i < n; i++) out.push(track[Math.floor(i * step)]);
+  out.push(track[track.length - 1]);
+  return out;
 }
 
-function project3D(
+function project(
   x: number, y: number, z: number,
-  rotX: number, rotZ: number,
-  cx: number, cy: number, scale: number
+  rX: number, rZ: number,
+  cx: number, cy: number, s: number
 ): [number, number, number] {
-  const cosZ = Math.cos(rotZ);
-  const sinZ = Math.sin(rotZ);
-  const x1 = x * cosZ - y * sinZ;
-  const y1 = x * sinZ + y * cosZ;
-
-  const cosX = Math.cos(rotX);
-  const sinX = Math.sin(rotX);
-  const y2 = y1 * cosX - z * sinX;
-  const z2 = y1 * sinX + z * cosX;
-
-  return [cx + x1 * scale, cy - y2 * scale, z2];
+  const cz = Math.cos(rZ), sz = Math.sin(rZ);
+  const x1 = x * cz - y * sz, y1 = x * sz + y * cz;
+  const cx2 = Math.cos(rX), sx2 = Math.sin(rX);
+  return [cx + x1 * s, cy - (y1 * cx2 - z * sx2) * s, y1 * sx2 + z * cx2];
 }
 
-function terrainColor(eleNorm: number): string {
-  if (eleNorm < 0.15) return "rgb(45,65,45)";
-  if (eleNorm < 0.3) return "rgb(55,75,42)";
-  if (eleNorm < 0.5) return "rgb(72,82,40)";
-  if (eleNorm < 0.7) return "rgb(95,82,48)";
-  if (eleNorm < 0.85) return "rgb(110,88,55)";
-  return "rgb(125,100,65)";
+// Terrain color: lush green at low, forest green mid, brown-grey at peaks
+function terrainRGB(t: number): [number, number, number] {
+  if (t < 0.2) return [38 + t * 80, 62 + t * 50, 32 + t * 20];
+  if (t < 0.5) return [54 + t * 40, 72 + t * 10, 36];
+  if (t < 0.75) return [70 + t * 30, 68 - t * 10, 38 + t * 15];
+  return [90 + t * 20, 75 - t * 5, 50 + t * 10];
 }
 
-function trackColor(eleNorm: number): string {
-  const r = Math.round(251 - eleNorm * 50);
-  const g = Math.round(191 - eleNorm * 100);
-  const b = Math.round(36 + eleNorm * 30);
-  return `rgb(${r},${g},${b})`;
-}
-
-const ELEV_EXAGGERATION = 1.4;
+const ELE_EX = 1.6;
 
 export function RouteMap() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [gpxData, setGpxData] = useState<{ track: TrackPoint[]; waypoints: Waypoint[] } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [rotX, setRotX] = useState(0.85);
-  const [rotZ, setRotZ] = useState(-0.4);
-  const [zoom, setZoom] = useState(1.0);
-  const dragRef = useRef<{ startX: number; startY: number; startRotX: number; startRotZ: number } | null>(null);
-  const [hoverInfo, setHoverInfo] = useState<{ km: number; ele: number; grade: string; x: number; y: number } | null>(null);
+  const [gpx, setGpx] = useState<{ track: TrackPoint[]; waypoints: Waypoint[] } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [rX, setRX] = useState(0.7);
+  const [rZ, setRZ] = useState(2.4);
+  const [zoom, setZoom] = useState(1.15);
+  const drag = useRef<{ sx: number; sy: number; irX: number; irZ: number } | null>(null);
+  const [hover, setHover] = useState<{ km: number; ele: number; x: number; y: number } | null>(null);
 
   useEffect(() => {
     fetch("/malnad-ultra-route.gpx")
-      .then((res) => {
-        if (!res.ok) throw new Error("GPX not found");
-        return res.text();
-      })
-      .then((xml) => setGpxData(parseGPX(xml)))
-      .catch(() => setError("Route file not available"));
+      .then((r) => { if (!r.ok) throw new Error(); return r.text(); })
+      .then((xml) => setGpx(parseGPX(xml)))
+      .catch(() => setErr("Route file not available"));
   }, []);
 
   const draw = useCallback(() => {
-    if (!gpxData || !canvasRef.current) return;
+    if (!gpx || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -122,385 +90,328 @@ export function RouteMap() {
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
-    const w = rect.width;
-    const h = rect.height;
+    const w = rect.width, h = rect.height;
 
-    const track = downsample(gpxData.track, 800);
-    const { waypoints } = gpxData;
+    const track = downsample(gpx.track, 800);
     if (track.length === 0) return;
 
-    const lats = track.map((p) => p.lat);
-    const lons = track.map((p) => p.lon);
-    const eles = track.map((p) => p.ele);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
-    const minEle = Math.min(...eles);
-    const maxEle = Math.max(...eles);
-    const latMid = (minLat + maxLat) / 2;
-    const cosLat = Math.cos((latMid * Math.PI) / 180);
+    const lats = track.map((p) => p.lat), lons = track.map((p) => p.lon), eles = track.map((p) => p.ele);
+    const mnLat = Math.min(...lats), mxLat = Math.max(...lats);
+    const mnLon = Math.min(...lons), mxLon = Math.max(...lons);
+    const mnE = Math.min(...eles), mxE = Math.max(...eles);
+    const cosL = Math.cos(((mnLat + mxLat) / 2 * Math.PI) / 180);
+    const latR = mxLat - mnLat || 0.01;
+    const lonR = (mxLon - mnLon) * cosL || 0.01;
+    const eleR = mxE - mnE || 1;
 
-    const latRange = maxLat - minLat || 0.01;
-    const lonRange = (maxLon - minLon) * cosLat || 0.01;
-    const eleRange = maxEle - minEle || 1;
-
-    const normalize = (lat: number, lon: number, ele: number) => ({
-      x: ((lon - minLon) * cosLat / lonRange - 0.5),
-      y: ((lat - minLat) / latRange - 0.5),
-      z: ((ele - minEle) / eleRange) * ELEV_EXAGGERATION,
+    const norm = (lat: number, lon: number, ele: number) => ({
+      x: (lon - mnLon) * cosL / lonR - 0.5,
+      y: (lat - mnLat) / latR - 0.5,
+      z: ((ele - mnE) / eleR) * ELE_EX,
     });
 
-    const scale = Math.min(w, h) * 0.65 * zoom;
-    const cx = w / 2;
-    const cy = h / 2 + 15;
+    const sc = Math.min(w, h) * 0.6 * zoom;
+    const cx = w / 2, cy = h / 2 + 20;
 
-    // Sky gradient
-    const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
-    skyGrad.addColorStop(0, "#0a0f1a");
-    skyGrad.addColorStop(0.4, "#121a2e");
-    skyGrad.addColorStop(1, "#1a1510");
-    ctx.fillStyle = skyGrad;
+    // Sky
+    const sky = ctx.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, "#070d18");
+    sky.addColorStop(0.5, "#0e1824");
+    sky.addColorStop(1, "#141210");
+    ctx.fillStyle = sky;
     ctx.fillRect(0, 0, w, h);
 
-    // Terrain mesh grid
-    const gridRes = 20;
-    const gridPad = 0.15;
-    const terrainGrid: { ele: number; x: number; y: number }[][] = [];
+    // Build terrain grid with proximity-based elevation
+    const G = 28;
+    const pad = 0.2;
+    const grid: number[][] = [];
+    for (let gy = 0; gy <= G; gy++) {
+      const row: number[] = [];
+      for (let gx = 0; gx <= G; gx++) {
+        const nx = (gx / G) * (1 + pad * 2) - 0.5 - pad;
+        const ny = (gy / G) * (1 + pad * 2) - 0.5 - pad;
+        const gLat = mnLat + (ny + 0.5) * latR;
+        const gLon = mnLon + (nx + 0.5) * lonR / cosL;
 
-    for (let gy = 0; gy <= gridRes; gy++) {
-      const row: { ele: number; x: number; y: number }[] = [];
-      for (let gx = 0; gx <= gridRes; gx++) {
-        const nx = (gx / gridRes) * (1 + gridPad * 2) - 0.5 - gridPad;
-        const ny = (gy / gridRes) * (1 + gridPad * 2) - 0.5 - gridPad;
-        const gLat = minLat + (ny + 0.5) * latRange;
-        const gLon = minLon + (nx + 0.5) * lonRange / cosLat;
-
-        let nearestEle = minEle;
-        let bestDist = Infinity;
-        for (let i = 0; i < track.length; i += 4) {
-          const d = Math.hypot(
-            (track[i].lat - gLat) / latRange,
-            (track[i].lon - gLon) * cosLat / lonRange
-          );
-          if (d < bestDist) {
-            bestDist = d;
-            nearestEle = track[i].ele;
-          }
+        let bestD = Infinity, nearE = mnE;
+        for (let i = 0; i < track.length; i += 3) {
+          const d = Math.hypot((track[i].lat - gLat) / latR, (track[i].lon - gLon) * cosL / lonR);
+          if (d < bestD) { bestD = d; nearE = track[i].ele; }
         }
-        const influence = Math.max(0, 1 - bestDist * 6);
-        const ele = minEle + (nearestEle - minEle) * influence * 0.6;
-
-        row.push({ ele, x: nx, y: ny });
+        const inf = Math.max(0, 1 - bestD * 4);
+        const base = mnE + (mxE - mnE) * 0.2;
+        row.push(base + (nearE - base) * inf * 0.7);
       }
-      terrainGrid.push(row);
+      grid.push(row);
     }
 
-    // Draw terrain quads back-to-front
-    const terrainQuads: { avgZ: number; draw: () => void }[] = [];
-    for (let gy = 0; gy < gridRes; gy++) {
-      for (let gx = 0; gx < gridRes; gx++) {
+    // Render terrain quads sorted back-to-front
+    const quads: { z: number; fn: () => void }[] = [];
+    for (let gy = 0; gy < G; gy++) {
+      for (let gx = 0; gx < G; gx++) {
         const corners = [
-          terrainGrid[gy][gx],
-          terrainGrid[gy][gx + 1],
-          terrainGrid[gy + 1][gx + 1],
-          terrainGrid[gy + 1][gx],
-        ];
-        const projected = corners.map((c) => {
-          const nz = ((c.ele - minEle) / eleRange) * ELEV_EXAGGERATION;
-          return project3D(c.x, c.y, nz, rotX, rotZ, cx, cy, scale);
+          { gx, gy }, { gx: gx + 1, gy },
+          { gx: gx + 1, gy: gy + 1 }, { gx, gy: gy + 1 },
+        ].map((c) => {
+          const nx = (c.gx / G) * (1 + pad * 2) - 0.5 - pad;
+          const ny = (c.gy / G) * (1 + pad * 2) - 0.5 - pad;
+          const e = grid[c.gy][c.gx];
+          return project(nx, ny, ((e - mnE) / eleR) * ELE_EX, rX, rZ, cx, cy, sc);
         });
-        const avgEle = corners.reduce((s, c) => s + c.ele, 0) / 4;
-        const eleNorm = (avgEle - minEle) / eleRange;
-        const avgZ = projected.reduce((s, p) => s + p[2], 0) / 4;
+        const avgE = [grid[gy][gx], grid[gy][gx + 1], grid[gy + 1][gx + 1], grid[gy + 1][gx]]
+          .reduce((s, v) => s + v, 0) / 4;
+        const eNorm = (avgE - mnE) / eleR;
+        const avgZ = corners.reduce((s, c) => s + c[2], 0) / 4;
 
-        terrainQuads.push({
-          avgZ,
-          draw: () => {
+        quads.push({
+          z: avgZ,
+          fn: () => {
             ctx.beginPath();
-            ctx.moveTo(projected[0][0], projected[0][1]);
-            for (let i = 1; i < 4; i++) ctx.lineTo(projected[i][0], projected[i][1]);
+            ctx.moveTo(corners[0][0], corners[0][1]);
+            for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
             ctx.closePath();
 
-            const tiltShade = Math.max(0.5, 1 - (gy / gridRes) * 0.4);
-            ctx.fillStyle = terrainColor(eleNorm);
-            ctx.globalAlpha = tiltShade * 0.85;
+            const [r, g, b] = terrainRGB(eNorm);
+            // Directional shading: lighter from top-right
+            const slopeX = (grid[gy][Math.min(gx + 1, G)] - grid[gy][Math.max(gx - 1, 0)]) / eleR;
+            const slopeY = (grid[Math.min(gy + 1, G)][gx] - grid[Math.max(gy - 1, 0)][gx]) / eleR;
+            const shade = Math.max(0.4, Math.min(1.2, 1 + slopeX * 2 - slopeY * 1.5));
+            ctx.fillStyle = `rgb(${Math.round(r * shade)},${Math.round(g * shade)},${Math.round(b * shade)})`;
             ctx.fill();
-            ctx.globalAlpha = 1;
-
-            ctx.strokeStyle = "rgba(255,255,255,0.04)";
-            ctx.lineWidth = 0.5;
+            ctx.strokeStyle = `rgba(0,0,0,0.12)`;
+            ctx.lineWidth = 0.3;
             ctx.stroke();
           },
         });
       }
     }
-    terrainQuads.sort((a, b) => a.avgZ - b.avgZ);
-    terrainQuads.forEach((q) => q.draw());
+    quads.sort((a, b) => a.z - b.z);
+    quads.forEach((q) => q.fn());
 
-    // Track shadow on ground
-    const groundProj = track.map((p) => {
-      const n = normalize(p.lat, p.lon, minEle);
-      return project3D(n.x, n.y, 0, rotX, rotZ, cx, cy, scale);
+    // Scattered trees/texture dots on lower elevations
+    for (let i = 0; i < 300; i++) {
+      const nx = (Math.random() - 0.5) * 1.1;
+      const ny = (Math.random() - 0.5) * 1.1;
+      const gLat = mnLat + (ny + 0.5) * latR;
+      const gLon = mnLon + (nx + 0.5) * lonR / cosL;
+      let bestD = Infinity, nearE = mnE;
+      for (let j = 0; j < track.length; j += 20) {
+        const d = Math.hypot((track[j].lat - gLat) / latR, (track[j].lon - gLon) * cosL / lonR);
+        if (d < bestD) { bestD = d; nearE = track[j].ele; }
+      }
+      const inf = Math.max(0, 1 - bestD * 4);
+      const base = mnE + (mxE - mnE) * 0.2;
+      const e = base + (nearE - base) * inf * 0.7;
+      const eNorm = (e - mnE) / eleR;
+      if (eNorm > 0.6 || bestD > 0.3) continue;
+      const [px, py] = project(nx, ny, ((e - mnE) / eleR) * ELE_EX + 0.02, rX, rZ, cx, cy, sc);
+      const size = 1.5 + Math.random() * 2.5;
+      ctx.beginPath();
+      ctx.arc(px, py, size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${30 + Math.random() * 20},${50 + Math.random() * 30},${20 + Math.random() * 15},${0.3 + Math.random() * 0.3})`;
+      ctx.fill();
+    }
+
+    // Track shadow on terrain surface
+    const groundP = track.map((p) => {
+      let bestD = Infinity, gE = mnE;
+      for (let j = 0; j < track.length; j += 10) {
+        const d = Math.hypot(track[j].lat - p.lat, track[j].lon - p.lon);
+        if (d < bestD) { bestD = d; gE = track[j].ele; }
+      }
+      const n = norm(p.lat, p.lon, gE * 0.95);
+      return project(n.x, n.y, n.z * 0.5, rX, rZ, cx, cy, sc);
     });
     ctx.beginPath();
-    groundProj.forEach(([px, py], i) => {
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    });
-    ctx.strokeStyle = "rgba(0,0,0,0.4)";
-    ctx.lineWidth = 4;
+    groundP.forEach(([px, py], i) => { if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx.lineWidth = 5;
+    ctx.lineJoin = "round";
     ctx.stroke();
 
     // Vertical drop lines
-    const projected = track.map((p) => {
-      const n = normalize(p.lat, p.lon, p.ele);
-      return project3D(n.x, n.y, n.z, rotX, rotZ, cx, cy, scale);
+    const trackP = track.map((p) => {
+      const n = norm(p.lat, p.lon, p.ele);
+      return project(n.x, n.y, n.z, rX, rZ, cx, cy, sc);
     });
-
-    ctx.strokeStyle = "rgba(251,191,36,0.06)";
+    ctx.strokeStyle = "rgba(251,191,36,0.04)";
     ctx.lineWidth = 0.5;
-    for (let i = 0; i < projected.length; i += 12) {
+    for (let i = 0; i < trackP.length; i += 15) {
       ctx.beginPath();
-      ctx.moveTo(groundProj[i][0], groundProj[i][1]);
-      ctx.lineTo(projected[i][0], projected[i][1]);
+      ctx.moveTo(groundP[i][0], groundP[i][1]);
+      ctx.lineTo(trackP[i][0], trackP[i][1]);
       ctx.stroke();
     }
 
     // Track glow
     ctx.beginPath();
-    projected.forEach(([px, py], i) => {
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    });
-    ctx.strokeStyle = "rgba(251,191,36,0.15)";
+    trackP.forEach(([px, py], i) => { if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+    ctx.strokeStyle = "rgba(251,191,36,0.12)";
     ctx.lineWidth = 8;
     ctx.lineJoin = "round";
     ctx.stroke();
 
-    // Track line colored by elevation
-    for (let i = 1; i < projected.length; i++) {
-      const eleNorm = (track[i].ele - minEle) / eleRange;
+    // Track colored by elevation
+    for (let i = 1; i < trackP.length; i++) {
+      const t = (track[i].ele - mnE) / eleR;
       ctx.beginPath();
-      ctx.moveTo(projected[i - 1][0], projected[i - 1][1]);
-      ctx.lineTo(projected[i][0], projected[i][1]);
-      ctx.strokeStyle = trackColor(eleNorm);
+      ctx.moveTo(trackP[i - 1][0], trackP[i - 1][1]);
+      ctx.lineTo(trackP[i][0], trackP[i][1]);
+      ctx.strokeStyle = `rgb(${Math.round(251 - t * 60)},${Math.round(191 - t * 110)},${Math.round(36 + t * 40)})`;
       ctx.lineWidth = 3;
       ctx.lineCap = "round";
       ctx.stroke();
     }
 
-    // Start/finish marker
-    const [sx, sy] = projected[0];
+    // Start marker
+    const [sx, sy] = trackP[0];
     ctx.beginPath();
-    ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+    ctx.arc(sx, sy, 7, 0, Math.PI * 2);
     ctx.fillStyle = "#22c55e";
     ctx.shadowColor = "#22c55e";
-    ctx.shadowBlur = 8;
+    ctx.shadowBlur = 12;
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "#1c1917";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#0a0f18";
+    ctx.lineWidth = 2.5;
     ctx.stroke();
 
     // Aid stations
-    waypoints.forEach((wp) => {
-      const closestIdx = gpxData.track.reduce((best, p, idx) => {
+    gpx.waypoints.forEach((wp) => {
+      const ci = gpx.track.reduce((b, p, i) => {
         const d = Math.hypot(p.lat - wp.lat, p.lon - wp.lon);
-        return d < best.d ? { d, idx } : best;
-      }, { d: Infinity, idx: 0 }).idx;
-      const wpEle = gpxData.track[closestIdx]?.ele ?? (minEle + eleRange * 0.5);
-      const n = normalize(wp.lat, wp.lon, wpEle);
-      const [wx, wy] = project3D(n.x, n.y, n.z, rotX, rotZ, cx, cy, scale);
-
+        return d < b.d ? { d, i } : b;
+      }, { d: Infinity, i: 0 }).i;
+      const n = norm(wp.lat, wp.lon, gpx.track[ci]?.ele ?? mnE);
+      const [wx, wy] = project(n.x, n.y, n.z, rX, rZ, cx, cy, sc);
       ctx.beginPath();
-      ctx.arc(wx, wy, 4, 0, Math.PI * 2);
+      ctx.arc(wx, wy, 4.5, 0, Math.PI * 2);
       ctx.fillStyle = "#ef4444";
       ctx.shadowColor = "#ef4444";
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = 8;
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = "#1c1917";
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#0a0f18";
+      ctx.lineWidth = 2;
       ctx.stroke();
-
       ctx.font = "bold 9px system-ui, sans-serif";
-      ctx.fillStyle = "#d6d3d1";
+      ctx.fillStyle = "#e7e5e4";
       ctx.textAlign = "left";
       ctx.fillText(wp.name.replace(/Aid Station /, "AS"), wx + 7, wy + 3);
     });
 
-    // Start label
     ctx.font = "bold 10px system-ui, sans-serif";
-    ctx.fillStyle = "#22c55e";
+    ctx.fillStyle = "#4ade80";
     ctx.textAlign = "left";
-    ctx.fillText("Start / Finish", sx + 9, sy + 4);
+    ctx.fillText("Start / Finish", sx + 10, sy + 4);
 
-    // Atmospheric fog at edges
-    const fogGrad = ctx.createRadialGradient(cx, cy, scale * 0.5, cx, cy, scale * 1.1);
-    fogGrad.addColorStop(0, "rgba(10,15,26,0)");
-    fogGrad.addColorStop(0.7, "rgba(10,15,26,0)");
-    fogGrad.addColorStop(1, "rgba(10,15,26,0.7)");
-    ctx.fillStyle = fogGrad;
+    // Atmospheric fog
+    const fog = ctx.createRadialGradient(cx, cy, sc * 0.45, cx, cy, sc * 1.0);
+    fog.addColorStop(0, "rgba(7,13,24,0)");
+    fog.addColorStop(0.65, "rgba(7,13,24,0)");
+    fog.addColorStop(1, "rgba(7,13,24,0.85)");
+    ctx.fillStyle = fog;
     ctx.fillRect(0, 0, w, h);
 
-    // Elevation info
+    // Info bar
     ctx.font = "10px system-ui, sans-serif";
-    ctx.fillStyle = "#78716c";
-    ctx.textAlign = "right";
-    ctx.fillText(`${Math.round(minEle)}m – ${Math.round(maxEle)}m elev`, w - 10, h - 8);
+    ctx.fillStyle = "#57534e";
     ctx.textAlign = "left";
-    ctx.fillText(`${Math.round(maxEle - minEle)}m gain`, 10, h - 8);
-  }, [gpxData, rotX, rotZ, zoom]);
+    ctx.fillText(`${Math.round(mxE - mnE)}m gain`, 10, h - 8);
+    ctx.textAlign = "right";
+    ctx.fillText(`${Math.round(mnE)}m – ${Math.round(mxE)}m`, w - 10, h - 8);
+  }, [gpx, rX, rZ, zoom]);
 
   useEffect(() => { draw(); }, [draw]);
 
-  function handleMouseDown(e: React.MouseEvent) {
-    dragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startRotX: rotX,
-      startRotZ: rotZ,
-    };
-    setHoverInfo(null);
+  const updateDrag = useCallback((clientX: number, clientY: number) => {
+    if (!drag.current) return;
+    setRZ(drag.current.irZ + (clientX - drag.current.sx) * 0.006);
+    setRX(Math.max(0.15, Math.min(1.45, drag.current.irX - (clientY - drag.current.sy) * 0.006)));
+  }, []);
+
+  function onDown(x: number, y: number) {
+    drag.current = { sx: x, sy: y, irX: rX, irZ: rZ };
+    setHover(null);
   }
 
-  function handleMouseMove(e: React.MouseEvent) {
-    if (dragRef.current) {
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
-      setRotZ(dragRef.current.startRotZ + dx * 0.005);
-      setRotX(Math.max(0.2, Math.min(1.5, dragRef.current.startRotX - dy * 0.005)));
-      return;
-    }
+  function onMove(cx2: number, cy2: number, canvasX: number, canvasY: number) {
+    if (drag.current) { updateDrag(cx2, cy2); return; }
+    if (!gpx || !canvasRef.current) return;
 
-    if (!gpxData || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const track = downsample(gpx.track, 800);
+    const lats = track.map((p) => p.lat), lons = track.map((p) => p.lon), eles = track.map((p) => p.ele);
+    const mnLat = Math.min(...lats), mxLat = Math.max(...lats);
+    const mnLon = Math.min(...lons), mxLon = Math.max(...lons);
+    const mnE = Math.min(...eles), mxE = Math.max(...eles);
+    const cosL = Math.cos(((mnLat + mxLat) / 2 * Math.PI) / 180);
+    const latR = mxLat - mnLat || 0.01, lonR = (mxLon - mnLon) * cosL || 0.01, eleR = mxE - mnE || 1;
+    const sc = Math.min(rect.width, rect.height) * 0.6 * zoom;
+    const cxC = rect.width / 2, cyC = rect.height / 2 + 20;
 
-    const track = downsample(gpxData.track, 800);
-    const lats = track.map((p) => p.lat);
-    const lons = track.map((p) => p.lon);
-    const eles = track.map((p) => p.ele);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
-    const minEle = Math.min(...eles);
-    const maxEle = Math.max(...eles);
-    const latMid = (minLat + maxLat) / 2;
-    const cosLat = Math.cos((latMid * Math.PI) / 180);
-    const latRange = maxLat - minLat || 0.01;
-    const lonRange = (maxLon - minLon) * cosLat || 0.01;
-    const eleRange = maxEle - minEle || 1;
-
-    const scale = Math.min(rect.width, rect.height) * 0.65 * zoom;
-    const cx = rect.width / 2;
-    const cy = rect.height / 2 + 15;
-
-    let closest = -1;
-    let minDist = Infinity;
+    let best = -1, bestD = Infinity;
     for (let i = 0; i < track.length; i += 2) {
       const n = {
-        x: (track[i].lon - minLon) * cosLat / lonRange - 0.5,
-        y: (track[i].lat - minLat) / latRange - 0.5,
-        z: (track[i].ele - minEle) / eleRange * ELEV_EXAGGERATION,
+        x: (track[i].lon - mnLon) * cosL / lonR - 0.5,
+        y: (track[i].lat - mnLat) / latR - 0.5,
+        z: ((track[i].ele - mnE) / eleR) * ELE_EX,
       };
-      const [px, py] = project3D(n.x, n.y, n.z, rotX, rotZ, cx, cy, scale);
-      const d = Math.hypot(px - mx, py - my);
-      if (d < minDist) { minDist = d; closest = i; }
+      const [px, py] = project(n.x, n.y, n.z, rX, rZ, cxC, cyC, sc);
+      const d = Math.hypot(px - canvasX, py - canvasY);
+      if (d < bestD) { bestD = d; best = i; }
     }
 
-    if (minDist < 20 && closest >= 0) {
+    if (bestD < 20 && best >= 0) {
       let km = 0;
-      const fullTrack = gpxData.track;
-      const step = Math.max(1, Math.floor(fullTrack.length / track.length));
-      const realIdx = Math.min(closest * step, fullTrack.length - 1);
-      for (let i = 1; i <= realIdx; i++) {
-        const dlat = (fullTrack[i].lat - fullTrack[i - 1].lat) * 111320;
-        const dlon = (fullTrack[i].lon - fullTrack[i - 1].lon) * 111320 * cosLat;
-        km += Math.sqrt(dlat * dlat + dlon * dlon) / 1000;
+      const full = gpx.track;
+      const step = Math.max(1, Math.floor(full.length / track.length));
+      const ri = Math.min(best * step, full.length - 1);
+      for (let i = 1; i <= ri; i++) {
+        const dl = (full[i].lat - full[i - 1].lat) * 111320;
+        const dn = (full[i].lon - full[i - 1].lon) * 111320 * cosL;
+        km += Math.sqrt(dl * dl + dn * dn) / 1000;
       }
-      const prevIdx = Math.max(0, realIdx - 5);
-      const dEle = fullTrack[realIdx].ele - fullTrack[prevIdx].ele;
-      const dDist = km > 0 ? 0.05 : 0;
-      const grade = dDist > 0 ? `${dEle > 0 ? "+" : ""}${((dEle / (dDist * 1000)) * 100).toFixed(0)}%` : "";
-      setHoverInfo({ km: Math.round(km * 10) / 10, ele: track[closest].ele, grade, x: mx, y: my });
+      setHover({ km: Math.round(km * 10) / 10, ele: track[best].ele, x: canvasX, y: canvasY });
     } else {
-      setHoverInfo(null);
+      setHover(null);
     }
   }
 
-  function handleMouseUp() {
-    dragRef.current = null;
-  }
-
-  function handleWheel(e: React.WheelEvent) {
-    e.preventDefault();
-    setZoom((prev) => Math.max(0.5, Math.min(3.0, prev - e.deltaY * 0.001)));
-  }
-
-  function handleTouchStart(e: React.TouchEvent) {
-    const t = e.touches[0];
-    dragRef.current = { startX: t.clientX, startY: t.clientY, startRotX: rotX, startRotZ: rotZ };
-  }
-
-  function handleTouchMove(e: React.TouchEvent) {
-    if (!dragRef.current) return;
-    const t = e.touches[0];
-    const dx = t.clientX - dragRef.current.startX;
-    const dy = t.clientY - dragRef.current.startY;
-    setRotZ(dragRef.current.startRotZ + dx * 0.005);
-    setRotX(Math.max(0.2, Math.min(1.5, dragRef.current.startRotX - dy * 0.005)));
-  }
-
-  if (error) {
+  if (err) {
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium font-heading">Course Map</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-xs text-muted-foreground">{error}</p>
-        </CardContent>
-      </Card>
+      <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium font-heading">Course Map</CardTitle></CardHeader>
+        <CardContent><p className="text-xs text-muted-foreground">{err}</p></CardContent></Card>
     );
   }
 
   return (
-    <Card style={{ background: "#0a0f1a" }}>
+    <Card style={{ background: "#070d18" }}>
       <CardHeader className="pb-1">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-sm font-medium font-heading">Malnad Ultra 100K Course</CardTitle>
             <p className="text-xs text-muted-foreground">
-              2 laps &times; 50km &middot; Drag to rotate &middot; Scroll to zoom
+              2 laps &times; 50km &middot; Western Ghats &middot; Drag to rotate &middot; Scroll to zoom
             </p>
           </div>
           <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
             <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#22c55e" }} />
-              Start
+              <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#22c55e" }} /> Start
             </span>
             <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#ef4444" }} />
-              Aid
+              <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#ef4444" }} /> Aid
             </span>
             <button
-              onClick={() => { setRotX(0.85); setRotZ(-0.4); setZoom(1.0); }}
+              onClick={() => { setRX(0.7); setRZ(2.4); setZoom(1.15); }}
               className="text-muted-foreground hover:text-[#fbbf24] transition-colors ml-1"
-              title="Reset view"
-            >
-              Reset
-            </button>
+            >Reset</button>
           </div>
         </div>
       </CardHeader>
       <CardContent className="relative px-0 pb-0">
-        <div className="relative" style={{ height: 380 }}>
-          {!gpxData && (
+        <div className="relative" style={{ height: 400 }}>
+          {!gpx && (
             <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
               Loading route...
             </div>
@@ -508,31 +419,31 @@ export function RouteMap() {
           <canvas
             ref={canvasRef}
             className="h-full w-full touch-none"
-            style={{ cursor: dragRef.current ? "grabbing" : "grab" }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={() => { dragRef.current = null; setHoverInfo(null); }}
-            onWheel={handleWheel}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={() => { dragRef.current = null; }}
+            style={{ cursor: drag.current ? "grabbing" : "grab" }}
+            onMouseDown={(e) => onDown(e.clientX, e.clientY)}
+            onMouseMove={(e) => {
+              const r = canvasRef.current?.getBoundingClientRect();
+              if (r) onMove(e.clientX, e.clientY, e.clientX - r.left, e.clientY - r.top);
+            }}
+            onMouseUp={() => { drag.current = null; }}
+            onMouseLeave={() => { drag.current = null; setHover(null); }}
+            onWheel={(e) => { e.preventDefault(); setZoom((z) => Math.max(0.5, Math.min(3, z - e.deltaY * 0.002))); }}
+            onTouchStart={(e) => onDown(e.touches[0].clientX, e.touches[0].clientY)}
+            onTouchMove={(e) => updateDrag(e.touches[0].clientX, e.touches[0].clientY)}
+            onTouchEnd={() => { drag.current = null; }}
           />
-          {hoverInfo && (
+          {hover && (
             <div
               className="pointer-events-none absolute z-10 rounded-md px-2.5 py-1.5 text-xs tabular-nums"
               style={{
-                left: Math.min(hoverInfo.x + 12, 280),
-                top: hoverInfo.y - 36,
-                background: "rgba(28,25,23,0.95)",
+                left: Math.min(hover.x + 12, 300),
+                top: hover.y - 36,
+                background: "rgba(7,13,24,0.92)",
                 border: "1px solid #fbbf24",
                 color: "#e7e5e4",
-                backdropFilter: "blur(4px)",
               }}
             >
-              <span style={{ color: "#fbbf24" }}>{hoverInfo.km} km</span>
-              {" "}&middot; {Math.round(hoverInfo.ele)}m
-              {hoverInfo.grade && <> &middot; {hoverInfo.grade}</>}
+              <span style={{ color: "#fbbf24" }}>{hover.km} km</span> &middot; {Math.round(hover.ele)}m
             </div>
           )}
         </div>

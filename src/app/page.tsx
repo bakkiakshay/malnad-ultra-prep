@@ -55,7 +55,7 @@ function mapToActivity(
   };
 }
 
-export const revalidate = 3600;
+export const revalidate = 300;
 
 export default async function DashboardPage() {
   const today = new Date().toISOString().slice(0, 10);
